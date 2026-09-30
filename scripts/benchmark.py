@@ -38,12 +38,27 @@ Perception (--perception) sets where the policy's cube position comes from:
          --perception-hz. A rejected detection (cube too hidden) keeps the last
          good estimate; before the first good one, the workspace centre is used.
 
+Skill mode (--skill NAME --skill-arg k=v) runs a library skill through the
+skills Runner instead of the bare policy: one call per position (retries are
+the orchestrator's job), the skill's own perception (world model), and the same
+ground-truth stages. It also reports the skill's self-reported success, the
+precision/recall of that signal against ground truth, and failure reasons.
+
+Every logged run writes a per-position record to results/episodes/ and, unless
+it is itself the ground-truth baseline, prints a regression report against the
+latest ground-truth policy run for the same checkpoint: metric deltas and the
+positions that regressed.
+
   python benchmark.py ../models/bc_clean3000_both_bce_time_s0.pt --label v3.0
   python benchmark.py <ckpt> --label v3.0 --perception noisy --pos-noise 5
+  python benchmark.py <ckpt> --label v4.1 --skill pick --skill-arg object=cube_red
 """
 
 import argparse
+import collections
+import csv
 import datetime
+import json
 import os
 import subprocess
 import sys
@@ -70,6 +85,7 @@ CONTROL_HZ = 50
 WORKSPACE_CENTRE = np.array([0.55, 0.0, TABLE_HEIGHT + CUBE_HALF])
 RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "results",
                        "benchmark.tsv")
+EPISODES = os.path.join(os.path.dirname(RESULTS), "episodes")
 
 
 def heldout_positions(n=200):
@@ -194,6 +210,36 @@ def return_home(env):
         env.step(home, GRIPPER_SCALE, n_substeps=DEC)
 
 
+class StageTracker:
+    """Ground-truth stage tracking, shared by policy and skill modes."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.best, self.held = -1, 0
+
+    def update(self, env, closed):
+        rel = env.cube_pos - env.tcp_pos
+        at_pose = np.linalg.norm(rel[:2]) < 0.015 and abs(rel[2]) < 0.020
+        lifted = env.lifted()
+        self.held = self.held + 1 if lifted and fingers_on_cube(env) else 0
+        hits = [
+            at_pose,
+            at_pose and closed,
+            at_pose and 0.030 < env.gripper_width < 0.050,
+            env.cube_pos[2] > REST_Z + 0.010,
+            lifted,
+            self.held >= HOLD_STEPS,
+        ]
+        self.best = max([self.best] + [i for i, h in enumerate(hits) if h])
+        return self.best
+
+    @property
+    def done(self):
+        return self.best == len(STAGES) - 1
+
+
 def attempt(env, agent, perception, max_steps, on_step=None):
     """One try from the current state. Returns the index of the furthest stage.
 
@@ -202,32 +248,20 @@ def attempt(env, agent, perception, max_steps, on_step=None):
     """
     agent.reset()
     perception.reset_attempt()
-    best, held = -1, 0
+    tracker = StageTracker()
     for _ in range(max_steps):
         arm, grip, closed = agent.act(env, perception.cube_pos(env))
         env.step(arm, grip, n_substeps=DEC)
-
-        rel = env.cube_pos - env.tcp_pos
-        at_pose = np.linalg.norm(rel[:2]) < 0.015 and abs(rel[2]) < 0.020
-        lifted = env.lifted()
-        held = held + 1 if lifted and fingers_on_cube(env) else 0
-        hits = [
-            at_pose,
-            at_pose and closed,
-            at_pose and 0.030 < env.gripper_width < 0.050,
-            env.cube_pos[2] > REST_Z + 0.010,
-            lifted,
-            held >= HOLD_STEPS,
-        ]
-        best = max([best] + [i for i, h in enumerate(hits) if h])
+        best = tracker.update(env, closed)
         if on_step is not None:
             on_step(best, closed, agent.n_closed)
-        if best == len(STAGES) - 1:
+        if tracker.done:
             break
-    return best
+    return tracker.best
 
 
 def evaluate(env, agent, perception, positions, attempts, max_steps):
+    """Policy mode. One record per position."""
     rows = []
     for idx, xy in enumerate(positions):
         env.reset(cube_xy=xy)
@@ -244,14 +278,50 @@ def evaluate(env, agent, perception, positions, attempts, max_steps):
             if best == len(STAGES) - 1:
                 used, success = k + 1, True
                 break
-        rows.append((first, success, used))
+        rows.append(dict(idx=idx, first=first, success=success, attempts=used,
+                         reported="", reason=""))
     return rows
 
 
+def evaluate_skill(env, skill, skill_args, positions, max_steps, min_visible):
+    """Skill mode: the skill runs through the Runner, one call per position
+    (retries are the orchestrator's job). Ground-truth stages are tracked with
+    the same StageTracker as policy mode, so success means the same thing."""
+    from skills import Runner
+    from skills.world import WorldModel
+
+    world = WorldModel(env, min_visible=min_visible)
+    tracker = StageTracker()
+    errors = []
+
+    def on_step(_skill, _t, _check):
+        tracker.update(env, world.gripper_cmd_closed)
+        for est in world.objects.values():
+            if est.detected:
+                errors.append(np.linalg.norm(est.position - env.cube_pos))
+
+    runner = Runner(env, world, timeout_steps=max_steps, on_step=on_step)
+    rows = []
+    for idx, xy in enumerate(positions):
+        env.reset(cube_xy=xy)
+        world.reset()
+        tracker.reset()
+        calls, rejects = world.detect_calls, world.detect_rejects
+        res = runner.execute(skill, **skill_args)
+        rows.append(dict(idx=idx, first=tracker.best, success=tracker.done, attempts=1,
+                         reported=res.ok, reason=res.reason.value))
+    info = {"errors": errors, "calls": world.detect_calls, "rejects": world.detect_rejects}
+    return rows, info
+
+
 def perception_tag(args):
-    if args.perception == "color" and args.min_visible != 0.6:
+    if args.skill:
+        tag = "color"  # skills see the world model: table_cam + color detector
+    else:
+        tag = args.perception
+    if tag == "color" and args.min_visible != 0.6:
         return f"color_minvis{args.min_visible:g}"
-    return args.perception
+    return tag
 
 
 def git_commit():
@@ -260,6 +330,158 @@ def git_commit():
                                        cwd=os.path.dirname(RESULTS), text=True).strip()
     except Exception:
         return "unknown"
+
+
+# ------------------------------------------------------------ results files
+
+COLUMNS = (["date", "commit", "label", "checkpoint", "frame", "grip_loss", "raw_grip",
+            "time_feature", "positions", "attempts", "stage_score", "success_1",
+            "success_k", "mean_attempts", "lifted_1"]
+           + [f"rate_{s}" for s in STAGES] + PERCEPTION_COLS
+           + ["mode", "reported_success", "signal_precision", "signal_recall",
+              "failure_reasons", "episodes", "eval_set", "protocol"])
+
+
+def summarize(rows, attempts):
+    first = np.array([r["first"] for r in rows])
+    success = np.array([r["success"] for r in rows])
+    used = np.array([r["attempts"] for r in rows])
+    m = {
+        "stage_score": 100 * np.mean((first + 1) / len(STAGES)),
+        "success_1": 100 * np.mean(success & (used == 1)),
+        "success_k": 100 * np.mean(success),
+        "mean_attempts": float(np.mean(used[success])) if success.any() else float("nan"),
+        "lifted_1": 100 * np.mean(first >= STAGES.index("lift")),
+    }
+    for i, s in enumerate(STAGES):
+        m[f"rate_{s}"] = 100 * np.mean(first >= i)
+    m["att_hist"] = [int(np.sum(success & (used == k))) for k in range(1, attempts + 1)]
+    m["failed"] = int((~success).sum())
+    if rows and rows[0]["reported"] != "":
+        claimed = np.array([bool(r["reported"]) for r in rows])
+        tp = int((claimed & success).sum())
+        m["reported_success"] = 100 * claimed.mean()
+        m["signal_precision"] = 100 * tp / max(1, claimed.sum())
+        m["signal_recall"] = 100 * tp / max(1, success.sum())
+        reasons = collections.Counter(r["reason"] for r in rows if not r["reported"])
+        m["failure_reasons"] = json.dumps(dict(reasons))
+    return m
+
+
+def write_episodes(run_id, rows):
+    os.makedirs(EPISODES, exist_ok=True)
+    path = os.path.join(EPISODES, f"{run_id}.tsv")
+    with open(path, "w") as f:
+        f.write("idx\tfirst_stage\tsuccess\tattempts\treported\treason\n")
+        for r in rows:
+            stage = STAGES[r["first"]] if r["first"] >= 0 else "none"
+            f.write(f"{r['idx']}\t{stage}\t{int(r['success'])}\t{r['attempts']}\t"
+                    f"{r['reported']}\t{r['reason']}\n")
+    return os.path.basename(path)
+
+
+def read_episodes(name):
+    path = os.path.join(EPISODES, name)
+    if not name or not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return {int(r["idx"]): r for r in csv.DictReader(f, delimiter="\t")}
+
+
+def find_baseline(checkpoint):
+    """Latest ground-truth policy-mode row for this checkpoint."""
+    if not os.path.exists(RESULTS):
+        return None
+    with open(RESULTS) as f:
+        rows = [r for r in csv.DictReader(f, delimiter="\t")
+                if r["checkpoint"] == checkpoint and r["perception"] == "gt"
+                and r.get("mode", "policy") == "policy" and r["raw_grip"] == "False"]
+    return rows[-1] if rows else None
+
+
+def regression_report(m, rows, checkpoint, is_baseline):
+    """Compare a run with the ground-truth baseline for the same checkpoint."""
+    if is_baseline:
+        return None
+    base = find_baseline(checkpoint)
+    if base is None:
+        print("   regression vs ground truth: no baseline row for this checkpoint "
+              "(run it with --perception gt)")
+        return None
+    keys = ["stage_score", "success_1", "lifted_1"] + [f"rate_{s}" for s in STAGES]
+    print(f"   regression vs ground truth ({base['label']}, perception gt, {base['date']}):")
+    print("     " + "  ".join(
+        f"{k.replace('rate_', '')} {m[k] - float(base[k]):+.1f}" for k in keys))
+    report = {"baseline": f"{base['label']} {base['checkpoint']} gt ({base['date']})",
+              "deltas": {k: m[k] - float(base[k]) for k in keys}}
+    eps = read_episodes(base.get("episodes", ""))
+    if eps is None:
+        print("     (no per-episode record for the baseline; re-run it to list positions)")
+        return report
+    now = {r["idx"]: r for r in rows}
+    first_ok = lambda r: bool(int(r["success"])) and int(r["attempts"]) == 1
+    worse = [i for i in now if i in eps and first_ok(eps[i])
+             and not (now[i]["success"] and now[i]["attempts"] == 1)]
+    better = [i for i in now if i in eps and not first_ok(eps[i])
+              and now[i]["success"] and now[i]["attempts"] == 1]
+    print(f"     first-attempt regressions: {len(worse)}   improvements: {len(better)}")
+    for i in worse:
+        r = now[i]
+        stage = STAGES[r["first"]] if r["first"] >= 0 else "none"
+        why = f", {r['reason']}" if r["reason"] else ""
+        print(f"       pos {i:3d}: reached {stage}{why}")
+    report.update(regressed=worse, improved=better)
+    return report
+
+
+def log_eval_to_wandb(args, path, name, mode, ptag, attempts, eval_set, agent, m, rows,
+                      report, err_med, err_p95, reject, skill_args):
+    """Mirror one evaluation to W&B: config, metrics, funnel, episodes, regressions."""
+    import tracking
+    import wandb
+
+    ck = torch.load(path, map_location="cpu", weights_only=False)
+    label = args.label or "nolabel"
+    stem = name.replace(".pt", "")
+    config = {
+        "label": label, "checkpoint": name, "mode": mode, "skill_args": skill_args,
+        "perception": ptag, "pos_noise_mm": args.pos_noise, "pos_bias_mm": args.pos_bias,
+        "perception_hz": args.perception_hz, "min_visible": args.min_visible,
+        "attempts": attempts, "max_steps": args.max_steps, "raw_grip": args.raw_grip,
+        "frame": agent.frame, "grip_loss": agent.grip_loss, "time_feature": agent.time_feature,
+        "eval_set": eval_set, "protocol": tracking.PROTOCOL, "commit": tracking.git_commit(),
+        "train_data": tracking.data_reference(path, ck),
+    }
+    run = tracking.init("eval", f"eval-{label}-{stem}-{mode.replace(':', '-')}-{ptag}", config,
+                        group=label, tags=[label, mode, ptag, eval_set, tracking.PROTOCOL])
+    tracking.use_checkpoint(run, path, {"train_data": config["train_data"]})
+
+    summary = {k: m[k] for k in ["stage_score", "success_1", "success_k", "mean_attempts",
+                                 "lifted_1"] + [f"rate_{s}" for s in STAGES]}
+    summary.update(pos_err_med_mm=err_med, pos_err_p95_mm=err_p95, detect_reject_pct=reject)
+    for k in ["reported_success", "signal_precision", "signal_recall"]:
+        if k in m:
+            summary[k] = m[k]
+    if report:
+        summary.update({f"vs_gt/{k}": v for k, v in report["deltas"].items()})
+        summary["vs_gt/baseline"] = report["baseline"]
+        if "regressed" in report:
+            summary["vs_gt/regressed_positions"] = report["regressed"]
+            summary["vs_gt/improved_positions"] = report["improved"]
+            summary["vs_gt/n_regressed"] = len(report["regressed"])
+    run.summary.update(summary)
+
+    funnel = wandb.Table(columns=["stage", "reached_pct"],
+                         data=[[s, m[f"rate_{s}"]] for s in STAGES])
+    episodes = wandb.Table(columns=["position", "first_stage", "success", "attempts",
+                                    "skill_reported_success", "failure_reason"],
+                           data=[[r["idx"], STAGES[r["first"]] if r["first"] >= 0 else "none",
+                                  bool(r["success"]), r["attempts"], str(r["reported"]),
+                                  r["reason"]] for r in rows])
+    run.log({"stage_funnel": wandb.plot.bar(funnel, "stage", "reached_pct",
+                                            title="Stage funnel (attempt 1)"),
+             "episodes": episodes})
+    run.finish()
 
 
 def main():
@@ -281,68 +503,103 @@ def main():
     ap.add_argument("--perception-hz", type=float, default=10.0,
                     help="noisy: estimate refresh rate (control runs at 50 Hz)")
     ap.add_argument("--min-visible", type=float, default=0.6,
-                    help="color: reject detections below this visible fraction "
-                         "(0 accepts every detection)")
+                    help="color / skill: reject detections below this visible "
+                         "fraction (0 accepts every detection)")
+    ap.add_argument("--skill", type=str, default=None,
+                    help="skill mode: run this library skill (with the checkpoint) "
+                         "through the Runner instead of the bare policy")
+    ap.add_argument("--skill-arg", action="append", default=[],
+                    help="skill mode: name=value, repeatable (e.g. object=cube_red)")
     ap.add_argument("--no-log", action="store_true", help="don't append to results")
+    ap.add_argument("--wandb", action="store_true",
+                    help="also log each evaluation to W&B (tracking.py)")
     args = ap.parse_args()
+    import tracking
+    eval_set = tracking.eval_set_id(HELDOUT_SEED, args.positions)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     positions = heldout_positions(args.positions)
     env = FrankaCubeLift()
+    attempts = 1 if args.skill else args.attempts
+    mode = f"skill:{args.skill}" if args.skill else "policy"
+    ptag = perception_tag(args)
 
     for path in args.checkpoints:
-        agent = Agent(path, device, raw_grip=args.raw_grip)
-        perception = Perception(args.perception, args.pos_noise, args.pos_bias,
-                                args.perception_hz, args.min_visible)
-        rows = evaluate(env, agent, perception, positions, args.attempts, args.max_steps)
-        errs = np.array(perception.errors) * 1000 if perception.errors else np.zeros(1)
-        err_med, err_p95 = np.median(errs), np.percentile(errs, 95)
-        reject = 100 * perception.rejects / max(1, perception.calls)
-        first = np.array([r[0] for r in rows])
-        success = np.array([r[1] for r in rows])
-        used = np.array([r[2] for r in rows])
-
-        stage_score = 100 * np.mean((first + 1) / len(STAGES))
-        s1 = 100 * np.mean(success & (used == 1))
-        sk = 100 * np.mean(success)
-        mean_att = float(np.mean(used[success])) if success.any() else float("nan")
-        lifted1 = 100 * np.mean(first >= STAGES.index("lift"))
-        stage_rates = [100 * np.mean(first >= i) for i in range(len(STAGES))]
-        att_hist = [int(np.sum(success & (used == k))) for k in range(1, args.attempts + 1)]
-
         name = os.path.basename(path)
-        print(f"\n== {name}  {args.label}  (frame={agent.frame}, grip={agent.grip_loss}"
-              f"{', raw' if args.raw_grip else ''}, time={agent.time_feature}, "
-              f"perception={args.perception} noise={args.pos_noise:g}mm "
-              f"bias={args.pos_bias:g}mm @{args.perception_hz:g}Hz)")
-        print(f"   stage score {stage_score:5.1f}   success@1 {s1:5.1f}%   "
-              f"success@{args.attempts} {sk:5.1f}%   attempts {mean_att:.2f}   "
-              f"lifted@1 {lifted1:5.1f}%")
+        if args.skill:
+            from skills import LIBRARY
+            skill = LIBRARY[args.skill](checkpoint=path)
+            skill_args = dict(a.split("=", 1) for a in args.skill_arg)
+            rows, info = evaluate_skill(env, skill, skill_args, positions, args.max_steps,
+                                        args.min_visible)
+            agent = skill.agent
+            errs_raw, calls, rejects = info["errors"], info["calls"], info["rejects"]
+        else:
+            agent = Agent(path, device, raw_grip=args.raw_grip)
+            perception = Perception(args.perception, args.pos_noise, args.pos_bias,
+                                    args.perception_hz, args.min_visible)
+            rows = evaluate(env, agent, perception, positions, args.attempts, args.max_steps)
+            errs_raw, calls, rejects = perception.errors, perception.calls, perception.rejects
+        errs = np.array(errs_raw) * 1000 if len(errs_raw) else np.zeros(1)
+        err_med, err_p95 = np.median(errs), np.percentile(errs, 95)
+        reject = 100 * rejects / max(1, calls)
+        m = summarize(rows, attempts)
+
+        print(f"\n== {name}  {args.label}  mode={mode}  (frame={agent.frame}, "
+              f"grip={agent.grip_loss}{', raw' if args.raw_grip else ''}, "
+              f"time={agent.time_feature}, perception={ptag})")
+        retry = (f"success@{attempts} {m['success_k']:5.1f}%   attempts {m['mean_attempts']:.2f}   "
+                 if attempts > 1 else "")
+        print(f"   stage score {m['stage_score']:5.1f}   success@1 {m['success_1']:5.1f}%   "
+              f"{retry}lifted@1 {m['lifted_1']:5.1f}%")
         print("   attempt 1 stage rates: " + "  ".join(
-            f"{s} {r:.0f}%" for s, r in zip(STAGES, stage_rates)))
-        print(f"   succeeded on attempt 1/2/…: {att_hist}   failed: {int((~success).sum())}")
-        if args.perception != "gt":
+            f"{s} {m[f'rate_{s}']:.0f}%" for s in STAGES))
+        print(f"   succeeded on attempt 1/2/…: {m['att_hist']}   failed: {m['failed']}")
+        if ptag != "gt":
             print(f"   cube position error: median {err_med:.1f} mm  p95 {err_p95:.1f} mm"
-                  + (f"   detections rejected {reject:.1f}%" if args.perception == "color" else ""))
+                  + (f"   detections rejected {reject:.1f}%" if ptag.startswith("color") else ""))
+        if args.skill:
+            print(f"   skill-reported success {m['reported_success']:.1f}%   success signal: "
+                  f"precision {m['signal_precision']:.1f}%  recall {m['signal_recall']:.1f}%   "
+                  f"failure reasons {m['failure_reasons']}")
+        is_baseline = mode == "policy" and ptag == "gt" and not args.raw_grip
+        report = regression_report(m, rows, name, is_baseline)
+        if args.wandb:
+            log_eval_to_wandb(args, path, name, mode, ptag, attempts, eval_set, agent, m, rows,
+                              report, err_med, err_p95, reject,
+                              dict(a.split("=", 1) for a in args.skill_arg))
 
         if not args.no_log:
+            stem = name.replace(".pt", "")
+            run_id = "__".join(x for x in [args.label or "nolabel", stem,
+                                           mode.replace(":", "-"), ptag] if x)
+            if ptag == "noisy":
+                run_id += f"_n{args.pos_noise:g}_b{args.pos_bias:g}"
+            episodes = write_episodes(run_id, rows)
+            values = {
+                "date": datetime.date.today().isoformat(), "commit": git_commit(),
+                "label": args.label, "checkpoint": name, "frame": agent.frame,
+                "grip_loss": agent.grip_loss, "raw_grip": args.raw_grip,
+                "time_feature": agent.time_feature, "positions": args.positions,
+                "attempts": attempts, "perception": ptag,
+                "pos_noise_mm": f"{args.pos_noise:g}", "pos_bias_mm": f"{args.pos_bias:g}",
+                "perception_hz": f"{args.perception_hz:g}",
+                "pos_err_med_mm": f"{err_med:.2f}", "pos_err_p95_mm": f"{err_p95:.2f}",
+                "detect_reject_pct": f"{reject:.1f}", "mode": mode, "episodes": episodes,
+                "eval_set": eval_set, "protocol": tracking.PROTOCOL,
+            }
+            for k in ["stage_score", "success_1", "success_k", "lifted_1"] + \
+                     [f"rate_{s}" for s in STAGES]:
+                values[k] = f"{m[k]:.1f}"
+            values["mean_attempts"] = f"{m['mean_attempts']:.2f}"
+            for k in ["reported_success", "signal_precision", "signal_recall"]:
+                values[k] = f"{m[k]:.1f}" if k in m else ""
+            values["failure_reasons"] = m.get("failure_reasons", "")
             new = not os.path.exists(RESULTS)
             with open(RESULTS, "a") as f:
                 if new:
-                    f.write("date\tcommit\tlabel\tcheckpoint\tframe\tgrip_loss\traw_grip\t"
-                            "time_feature\tpositions\tattempts\tstage_score\tsuccess_1\t"
-                            "success_k\tmean_attempts\tlifted_1\t"
-                            + "\t".join(f"rate_{s}" for s in STAGES)
-                            + "\t" + "\t".join(PERCEPTION_COLS) + "\n")
-                f.write("\t".join(map(str, [
-                    datetime.date.today().isoformat(), git_commit(), args.label, name,
-                    agent.frame, agent.grip_loss, args.raw_grip, agent.time_feature,
-                    args.positions, args.attempts, f"{stage_score:.1f}", f"{s1:.1f}",
-                    f"{sk:.1f}", f"{mean_att:.2f}", f"{lifted1:.1f}",
-                    *[f"{r:.1f}" for r in stage_rates],
-                    perception_tag(args), f"{args.pos_noise:g}", f"{args.pos_bias:g}",
-                    f"{args.perception_hz:g}", f"{err_med:.2f}", f"{err_p95:.2f}",
-                    f"{reject:.1f}"])) + "\n")
+                    f.write("\t".join(COLUMNS) + "\n")
+                f.write("\t".join(str(values[c]) for c in COLUMNS) + "\n")
     env.close()
 
 

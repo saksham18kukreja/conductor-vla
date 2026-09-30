@@ -76,9 +76,12 @@ These are the hypotheses the phases are designed to test.
    perception, verification. Track the counts; they show where the
    bottleneck is.
 7. **Keep defaults backward compatible.** New behaviour goes behind a flag.
-8. **Log it.** Benchmark every new version with `scripts/benchmark.py` (one
-   row per checkpoint in `results/benchmark.tsv`), put checkpoints in
-   `models/`, and add a line to the Log below.
+8. **Log it.** Benchmark every new version with `scripts/benchmark.py
+   --wandb` (one row per checkpoint in `results/benchmark.tsv`, a per-position
+   record in `results/episodes/`, a regression report against the
+   ground-truth baseline, and a W&B run), train with `train_bc.py --wandb`,
+   put checkpoints in `models/`, and add a line to the Log below. Compare only
+   results with the same `eval_set` and `protocol`.
 9. **Versioning.** Minor bump for eval or rollout changes, major bump for a
    new model, input, loss, dataset or harness component. Tag the commit.
 
@@ -292,3 +295,5 @@ needs it.
 | 2026-09-28 | — | Perception moved to Phase 1 (camera + detector before the skill interface) | — |
 | 2026-09-28 | — | Perception error budget (noisy cube position, 7 settings) | ≤2 mm random / ≤5 mm offset keeps ~100%; σ 10 mm → 64% |
 | 2026-09-29 | v4.0 | Camera + color detector replace the simulator's cube position | Success@1 99.3%, Success@3 99.8%; failures = start-of-episode blind spot |
+| 2026-09-29 | v4.1 | Skill abstraction + `pick` skill (preconditions, observable termination), evaluated in the unified benchmark | Success@1 95.0% (3/3 seeds); all 10 failures = `target_not_detected` refusals; success signal precision/recall 100% |
+| 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |

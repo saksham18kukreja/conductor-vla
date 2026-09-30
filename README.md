@@ -188,6 +188,29 @@ python make_bc_video.py --overlay --perception color \
     --clip ../models/bc_clean3000_both_bce_time_s0.pt:0 --out ../videos/system_color.mp4
 ```
 
+## Experiment tracking
+
+Training and evaluation are mirrored to Weights & Biases
+([Agentic robotics](https://wandb.ai/saksham-kukreja18-robotics/Agentic%20robotics))
+with `--wandb` on `train_bc.py` and `benchmark.py` (`scripts/tracking.py`).
+Local files stay the source of truth: `results/benchmark.tsv`,
+`results/episodes/` and `models/`.
+
+- **Training runs:** config, per-epoch losses and gripper accuracy, the
+  checkpoint as a model artifact.
+- **Evaluation runs:** config, all benchmark metrics, the stage funnel, a
+  per-position episode table, and the regression report against the
+  ground-truth baseline, linked to the checkpoint artifact.
+- **Demonstration data stays local**, referenced by file name, SHA-256 and
+  shape (new checkpoints store this reference; older ones have it inferred
+  from their name and marked `inferred`). Videos are not uploaded.
+- **Comparability:** every evaluation records `eval_set` (e.g.
+  `heldout2026_n200`) and `protocol` (scoring rules, currently `p1`). Only
+  results sharing both are directly comparable.
+
+`scripts/wandb_backfill.py` uploaded all earlier results rows as `backfill`
+runs.
+
 ## Evaluation
 
 **Protocol** (`scripts/benchmark.py`):

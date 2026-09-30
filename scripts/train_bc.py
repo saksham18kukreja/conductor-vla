@@ -179,7 +179,20 @@ def main():
                     help="weight of the bce gripper term relative to the joint mse")
     ap.add_argument("--time-feature", action="store_true",
                     help="append steps-since-gripper-closed to the observation")
+    ap.add_argument("--label", type=str, default="",
+                    help="version label for tracking, e.g. v3.0")
+    ap.add_argument("--wandb", action="store_true",
+                    help="log config, metrics and the checkpoint to W&B (tracking.py)")
     args = ap.parse_args()
+
+    import tracking
+    data = tracking.dataset_fingerprint(args.demos)
+    run = tracking.init(
+        "train", f"train-{args.label or 'nolabel'}-{os.path.basename(args.out).replace('.pt', '')}",
+        dict(vars(args), data=data, commit=tracking.git_commit(),
+             val_split="episode-level 10%, split seed = --seed"),
+        group=args.label or None, tags=[t for t in [args.label, args.frame, args.grip_loss] if t],
+        enabled=args.wandb)
 
     torch.manual_seed(args.seed)
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -244,13 +257,18 @@ def main():
             print(f"epoch {ep+1:4d}  train {total/n:.5f}  val {val:.5f}  "
                   f"dq {val_dq:.5f}  grip_acc {100*acc:.2f}%  "
                   f"({time.time()-t0:.0f}s)")
+            if run:
+                run.log({"epoch": ep + 1, "train/loss": total / n, "val/loss": val,
+                         "val/dq_mse": val_dq, "val/grip_acc": acc,
+                         "lr": sched.get_last_lr()[0]})
 
     out = os.path.abspath(args.out)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     torch.save({"state_dict": policy.state_dict(), "norm": norm,
                 "obs_dim": tr_o.shape[1], "act_dim": tr_a.shape[1],
                 "hidden": args.hidden, "frame": args.frame,
-                "grip_loss": args.grip_loss, "time_feature": args.time_feature}, out)
+                "grip_loss": args.grip_loss, "time_feature": args.time_feature,
+                "data": data, "train_args": vars(args)}, out)
     print(f"saved {out}")
 
     # The number that actually matters.
@@ -267,6 +285,13 @@ def main():
     env.close()
     print(f"BC policy success: {100*np.mean(wins):.1f}%  "
           f"({sum(wins)}/{len(wins)})    [expert: 100%]")
+    if run:
+        run.summary["debug_eval50/success"] = 100 * np.mean(wins)
+        tracking.log_checkpoint(run, out, {"label": args.label, "data": data,
+                                           "frame": args.frame, "grip_loss": args.grip_loss,
+                                           "time_feature": args.time_feature,
+                                           "seed": args.seed})
+        run.finish()
 
 
 if __name__ == "__main__":

@@ -137,6 +137,8 @@ def main():
         episode_starts=np.array(starts), episode_lengths=np.array(lengths),
         meta=np.array(meta, dtype=np.float32),
         obs_labels=np.array(OBS_LABELS), act_labels=np.array(ACT_LABELS),
+        collection=np.array({"episodes_requested": args.episodes, "seed": args.seed,
+                             "noise": args.noise, "keep_failures": args.keep_failures}),
     )
 
     print(f"\nepisodes requested {args.episodes}, kept {len(lengths)}, "
