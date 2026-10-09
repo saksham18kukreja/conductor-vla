@@ -38,6 +38,7 @@ class Reason(str, Enum):
     UNREACHABLE = "unreachable"
     GRASP_MISSED = "grasp_missed"
     OBJECT_DROPPED = "object_dropped"
+    TARGET_MISSED = "target_missed"
     TIMEOUT = "timeout"
 
 

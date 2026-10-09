@@ -40,9 +40,14 @@ Perception (--perception) sets where the policy's cube position comes from:
 
 Skill mode (--skill NAME --skill-arg k=v) runs a library skill through the
 skills Runner instead of the bare policy: one call per position (retries are
-the orchestrator's job), the skill's own perception (world model), and the same
-ground-truth stages. It also reports the skill's self-reported success, the
-precision/recall of that signal against ground truth, and failure reasons.
+the orchestrator's job) and the skill's own perception (world model; with
+--perception gt the world model is fed true positions, to separate perception
+failures from skill failures). It also reports the skill's self-reported
+success, the precision/recall of that signal against ground truth, and failure
+reasons. pick uses the stages above; place, push and home have their own
+stages, start states (--start, standard or a handoff from another skill's end
+state) and targets, defined in skill_tasks.py. They also report the final
+distance from the target (goal error).
 
 Every logged run writes a per-position record to results/episodes/ and, unless
 it is itself the ground-truth baseline, prints a regression report against the
@@ -52,6 +57,9 @@ positions that regressed.
   python benchmark.py ../models/bc_clean3000_both_bce_time_s0.pt --label v3.0
   python benchmark.py <ckpt> --label v3.0 --perception noisy --pos-noise 5
   python benchmark.py <ckpt> --label v4.1 --skill pick --skill-arg object=cube_red
+  python benchmark.py ../models/bc_place3000_s0.pt --label place-v1.0 --skill place
+  python benchmark.py ../models/bc_place3000_s0.pt --label place-v1.0 --skill place --start pick
+  python benchmark.py --label home-v1.0 --skill home --start after_push
 """
 
 import argparse
@@ -283,40 +291,69 @@ def evaluate(env, agent, perception, positions, attempts, max_steps):
     return rows
 
 
-def evaluate_skill(env, skill, skill_args, positions, max_steps, min_visible):
+def evaluate_skill(env, skill, skill_name, start, skill_args, positions, max_steps,
+                   min_visible, oracle):
     """Skill mode: the skill runs through the Runner, one call per position
-    (retries are the orchestrator's job). Ground-truth stages are tracked with
-    the same StageTracker as policy mode, so success means the same thing."""
-    from skills import Runner
+    (retries are the orchestrator's job). pick is scored with the same
+    StageTracker as policy mode; place/push/home with skill_tasks trackers.
+    Episodes whose start state could not be produced are recorded as skipped
+    and left out of the metrics."""
+    import skill_tasks
+    from skills import LIBRARY, Runner
     from skills.world import WorldModel
 
-    world = WorldModel(env, min_visible=min_visible)
-    tracker = StageTracker()
+    world = WorldModel(env, min_visible=min_visible, oracle=oracle)
+    tracker = None
     errors = []
 
     def on_step(_skill, _t, _check):
-        tracker.update(env, world.gripper_cmd_closed)
+        if skill_name == "pick":
+            tracker.update(env, world.gripper_cmd_closed)
+        else:
+            tracker.update(world)
         for est in world.objects.values():
             if est.detected:
                 errors.append(np.linalg.norm(est.position - env.cube_pos))
 
     runner = Runner(env, world, timeout_steps=max_steps, on_step=on_step)
+    pick_runner = None
+    if start == "pick":  # handoff: the learned pick skill produces the start
+        pick_runner = Runner(env, world, timeout_steps=max_steps)
+        pick_runner.pick_skill = LIBRARY["pick"]()
     rows = []
+    calls = rejects = 0
     for idx, xy in enumerate(positions):
-        env.reset(cube_xy=xy)
-        world.reset()
-        tracker.reset()
-        calls, rejects = world.detect_calls, world.detect_rejects
-        res = runner.execute(skill, **skill_args)
-        rows.append(dict(idx=idx, first=tracker.best, success=tracker.done, attempts=1,
-                         reported=res.ok, reason=res.reason.value))
-    info = {"errors": errors, "calls": world.detect_calls, "rejects": world.detect_rejects}
+        prepared = skill_tasks.setup(skill_name, start, env, world, xy, idx, pick_runner)
+        if prepared is None:
+            rows.append(dict(idx=idx, first=-1, success=False, attempts=1, reported="",
+                             reason="start_failed", goal_err=float("nan"), skipped=True))
+            continue
+        args, goal = prepared
+        args.update(skill_args)
+        if skill_name == "pick":
+            tracker = StageTracker()
+        else:
+            tracker = skill_tasks.TRACKERS[skill_name](env, goal)
+        n0, r0 = world.detect_calls, world.detect_rejects
+        res = runner.execute(skill, **args)
+        calls += world.detect_calls - n0  # world.reset() per episode clears the counters
+        rejects += world.detect_rejects - r0
+        if skill_name == "pick":
+            success, goal_err = tracker.done, float("nan")
+        else:
+            success, goal_err = tracker.finish(), tracker.goal_err()
+        rows.append(dict(idx=idx, first=tracker.best, success=success, attempts=1,
+                         reported=res.ok, reason=res.reason.value, goal_err=goal_err,
+                         skipped=False))
+    info = {"errors": errors, "calls": calls, "rejects": rejects}
     return rows, info
 
 
 def perception_tag(args):
     if args.skill:
-        tag = "color"  # skills see the world model: table_cam + color detector
+        # skills see the world model: table_cam + color detector, or the
+        # simulator's true positions with --perception gt
+        tag = "gt" if args.perception == "gt" else "color"
     else:
         tag = args.perception
     if tag == "color" and args.min_visible != 0.6:
@@ -339,22 +376,33 @@ COLUMNS = (["date", "commit", "label", "checkpoint", "frame", "grip_loss", "raw_
             "success_k", "mean_attempts", "lifted_1"]
            + [f"rate_{s}" for s in STAGES] + PERCEPTION_COLS
            + ["mode", "reported_success", "signal_precision", "signal_recall",
-              "failure_reasons", "episodes", "eval_set", "protocol"])
+              "failure_reasons", "episodes", "eval_set", "protocol",
+              "start", "stage_rates", "goal_err_med_mm", "goal_err_p95_mm", "start_failed"])
 
 
-def summarize(rows, attempts):
+def summarize(rows, attempts, stages=STAGES):
+    skipped = sum(bool(r.get("skipped")) for r in rows)
+    rows = [r for r in rows if not r.get("skipped")]
     first = np.array([r["first"] for r in rows])
     success = np.array([r["success"] for r in rows])
     used = np.array([r["attempts"] for r in rows])
     m = {
-        "stage_score": 100 * np.mean((first + 1) / len(STAGES)),
+        "stage_score": 100 * np.mean((first + 1) / len(stages)),
         "success_1": 100 * np.mean(success & (used == 1)),
         "success_k": 100 * np.mean(success),
         "mean_attempts": float(np.mean(used[success])) if success.any() else float("nan"),
-        "lifted_1": 100 * np.mean(first >= STAGES.index("lift")),
+        "lifted_1": 100 * np.mean(first >= STAGES.index("lift")) if stages is STAGES
+        else float("nan"),
+        "start_failed": skipped,
     }
-    for i, s in enumerate(STAGES):
-        m[f"rate_{s}"] = 100 * np.mean(first >= i)
+    m["stage_rates"] = {s: 100 * np.mean(first >= i) for i, s in enumerate(stages)}
+    if stages is STAGES:
+        for s in STAGES:
+            m[f"rate_{s}"] = m["stage_rates"][s]
+    errs = np.array([r.get("goal_err", np.nan) for r in rows], dtype=float)
+    errs = errs[~np.isnan(errs)] * 1000
+    m["goal_err_med_mm"] = float(np.median(errs)) if len(errs) else float("nan")
+    m["goal_err_p95_mm"] = float(np.percentile(errs, 95)) if len(errs) else float("nan")
     m["att_hist"] = [int(np.sum(success & (used == k))) for k in range(1, attempts + 1)]
     m["failed"] = int((~success).sum())
     if rows and rows[0]["reported"] != "":
@@ -368,15 +416,35 @@ def summarize(rows, attempts):
     return m
 
 
-def write_episodes(run_id, rows):
+def migrate_results():
+    """Add columns introduced since a results file was started (blank for old rows)."""
+    if not os.path.exists(RESULTS):
+        return
+    with open(RESULTS) as f:
+        header = f.readline().rstrip("\n").split("\t")
+        rows = list(csv.DictReader(f, fieldnames=header, delimiter="\t"))
+    if header == COLUMNS:
+        return
+    with open(RESULTS, "w") as f:
+        f.write("\t".join(COLUMNS) + "\n")
+        for r in rows:
+            f.write("\t".join(str(r.get(c) or "") for c in COLUMNS) + "\n")
+
+
+def write_episodes(run_id, rows, stages=STAGES):
     os.makedirs(EPISODES, exist_ok=True)
     path = os.path.join(EPISODES, f"{run_id}.tsv")
+    goal = any("goal_err" in r and not np.isnan(r["goal_err"]) for r in rows)
     with open(path, "w") as f:
-        f.write("idx\tfirst_stage\tsuccess\tattempts\treported\treason\n")
+        f.write("idx\tfirst_stage\tsuccess\tattempts\treported\treason"
+                + ("\tgoal_err_mm" if goal else "") + "\n")
         for r in rows:
-            stage = STAGES[r["first"]] if r["first"] >= 0 else "none"
+            stage = stages[r["first"]] if r["first"] >= 0 else "none"
             f.write(f"{r['idx']}\t{stage}\t{int(r['success'])}\t{r['attempts']}\t"
-                    f"{r['reported']}\t{r['reason']}\n")
+                    f"{r['reported']}\t{r['reason']}")
+            if goal:
+                f.write(f"\t{1000 * r['goal_err']:.1f}")
+            f.write("\n")
     return os.path.basename(path)
 
 
@@ -388,27 +456,36 @@ def read_episodes(name):
         return {int(r["idx"]): r for r in csv.DictReader(f, delimiter="\t")}
 
 
-def find_baseline(checkpoint):
-    """Latest ground-truth policy-mode row for this checkpoint."""
+def find_baseline(checkpoint, mode="policy", start=""):
+    """Latest ground-truth row for this checkpoint: policy mode for the pick
+    policy and pick skill (whose standard start is the policy benchmark's);
+    otherwise the same skill and start with --perception gt."""
     if not os.path.exists(RESULTS):
         return None
     with open(RESULTS) as f:
-        rows = [r for r in csv.DictReader(f, delimiter="\t")
-                if r["checkpoint"] == checkpoint and r["perception"] == "gt"
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    if mode in ("policy", "skill:pick") and start in ("", "home"):
+        rows = [r for r in rows if r["checkpoint"] == checkpoint and r["perception"] == "gt"
                 and r.get("mode", "policy") == "policy" and r["raw_grip"] == "False"]
+    else:
+        rows = [r for r in rows if r["checkpoint"] == checkpoint and r["perception"] == "gt"
+                and r.get("mode") == mode and r.get("start", "") == start]
     return rows[-1] if rows else None
 
 
-def regression_report(m, rows, checkpoint, is_baseline):
+def regression_report(m, rows, checkpoint, is_baseline, mode="policy", start="",
+                      stages=STAGES):
     """Compare a run with the ground-truth baseline for the same checkpoint."""
     if is_baseline:
         return None
-    base = find_baseline(checkpoint)
+    base = find_baseline(checkpoint, mode, start)
     if base is None:
         print("   regression vs ground truth: no baseline row for this checkpoint "
               "(run it with --perception gt)")
         return None
-    keys = ["stage_score", "success_1", "lifted_1"] + [f"rate_{s}" for s in STAGES]
+    keys = ["stage_score", "success_1"]
+    if "rate_hold" in m:
+        keys += ["lifted_1"] + [f"rate_{s}" for s in STAGES]
     print(f"   regression vs ground truth ({base['label']}, perception gt, {base['date']}):")
     print("     " + "  ".join(
         f"{k.replace('rate_', '')} {m[k] - float(base[k]):+.1f}" for k in keys))
@@ -418,7 +495,7 @@ def regression_report(m, rows, checkpoint, is_baseline):
     if eps is None:
         print("     (no per-episode record for the baseline; re-run it to list positions)")
         return report
-    now = {r["idx"]: r for r in rows}
+    now = {r["idx"]: r for r in rows if not r.get("skipped")}
     first_ok = lambda r: bool(int(r["success"])) and int(r["attempts"]) == 1
     worse = [i for i in now if i in eps and first_ok(eps[i])
              and not (now[i]["success"] and now[i]["attempts"] == 1)]
@@ -427,7 +504,7 @@ def regression_report(m, rows, checkpoint, is_baseline):
     print(f"     first-attempt regressions: {len(worse)}   improvements: {len(better)}")
     for i in worse:
         r = now[i]
-        stage = STAGES[r["first"]] if r["first"] >= 0 else "none"
+        stage = stages[r["first"]] if r["first"] >= 0 else "none"
         why = f", {r['reason']}" if r["reason"] else ""
         print(f"       pos {i:3d}: reached {stage}{why}")
     report.update(regressed=worse, improved=better)
@@ -435,12 +512,14 @@ def regression_report(m, rows, checkpoint, is_baseline):
 
 
 def log_eval_to_wandb(args, path, name, mode, ptag, attempts, eval_set, agent, m, rows,
-                      report, err_med, err_p95, reject, skill_args):
+                      report, err_med, err_p95, reject, skill_args, stages=STAGES,
+                      protocol=None, start=""):
     """Mirror one evaluation to W&B: config, metrics, funnel, episodes, regressions."""
     import tracking
     import wandb
 
-    ck = torch.load(path, map_location="cpu", weights_only=False)
+    protocol = protocol or tracking.PROTOCOL
+    ck = torch.load(path, map_location="cpu", weights_only=False) if agent else {}
     label = args.label or "nolabel"
     stem = name.replace(".pt", "")
     config = {
@@ -448,16 +527,21 @@ def log_eval_to_wandb(args, path, name, mode, ptag, attempts, eval_set, agent, m
         "perception": ptag, "pos_noise_mm": args.pos_noise, "pos_bias_mm": args.pos_bias,
         "perception_hz": args.perception_hz, "min_visible": args.min_visible,
         "attempts": attempts, "max_steps": args.max_steps, "raw_grip": args.raw_grip,
-        "frame": agent.frame, "grip_loss": agent.grip_loss, "time_feature": agent.time_feature,
-        "eval_set": eval_set, "protocol": tracking.PROTOCOL, "commit": tracking.git_commit(),
-        "train_data": tracking.data_reference(path, ck),
+        "frame": getattr(agent, "frame", ""), "grip_loss": getattr(agent, "grip_loss", ""),
+        "time_feature": getattr(agent, "time_feature", ""), "start": start,
+        "eval_set": eval_set, "protocol": protocol, "commit": tracking.git_commit(),
+        "train_data": tracking.data_reference(path, ck) if agent else "scripted",
     }
-    run = tracking.init("eval", f"eval-{label}-{stem}-{mode.replace(':', '-')}-{ptag}", config,
-                        group=label, tags=[label, mode, ptag, eval_set, tracking.PROTOCOL])
-    tracking.use_checkpoint(run, path, {"train_data": config["train_data"]})
+    run_name = f"eval-{label}-{stem}-{mode.replace(':', '-')}-{ptag}" + (f"-{start}" if start else "")
+    run = tracking.init("eval", run_name, config, group=label,
+                        tags=[t for t in [label, mode, ptag, eval_set, protocol, start] if t])
+    if agent:
+        tracking.use_checkpoint(run, path, {"train_data": config["train_data"]})
 
     summary = {k: m[k] for k in ["stage_score", "success_1", "success_k", "mean_attempts",
-                                 "lifted_1"] + [f"rate_{s}" for s in STAGES]}
+                                 "lifted_1", "goal_err_med_mm", "goal_err_p95_mm",
+                                 "start_failed"]}
+    summary.update({f"rate_{s}": v for s, v in m["stage_rates"].items()})
     summary.update(pos_err_med_mm=err_med, pos_err_p95_mm=err_p95, detect_reject_pct=reject)
     for k in ["reported_success", "signal_precision", "signal_recall"]:
         if k in m:
@@ -472,12 +556,13 @@ def log_eval_to_wandb(args, path, name, mode, ptag, attempts, eval_set, agent, m
     run.summary.update(summary)
 
     funnel = wandb.Table(columns=["stage", "reached_pct"],
-                         data=[[s, m[f"rate_{s}"]] for s in STAGES])
+                         data=[[s, v] for s, v in m["stage_rates"].items()])
     episodes = wandb.Table(columns=["position", "first_stage", "success", "attempts",
-                                    "skill_reported_success", "failure_reason"],
-                           data=[[r["idx"], STAGES[r["first"]] if r["first"] >= 0 else "none",
+                                    "skill_reported_success", "failure_reason", "goal_err_mm"],
+                           data=[[r["idx"], stages[r["first"]] if r["first"] >= 0 else "none",
                                   bool(r["success"]), r["attempts"], str(r["reported"]),
-                                  r["reason"]] for r in rows])
+                                  r["reason"], 1000 * r.get("goal_err", float("nan"))]
+                                 for r in rows])
     run.log({"stage_funnel": wandb.plot.bar(funnel, "stage", "reached_pct",
                                             title="Stage funnel (attempt 1)"),
              "episodes": episodes})
@@ -486,7 +571,8 @@ def log_eval_to_wandb(args, path, name, mode, ptag, attempts, eval_set, agent, m
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("checkpoints", nargs="+")
+    ap.add_argument("checkpoints", nargs="*",
+                    help="policy checkpoints (none for a scripted skill, e.g. home)")
     ap.add_argument("--label", type=str, default="",
                     help="version label for the results row, e.g. v3.0")
     ap.add_argument("--positions", type=int, default=200)
@@ -494,8 +580,9 @@ def main():
     ap.add_argument("--max-steps", type=int, default=700)
     ap.add_argument("--raw-grip", action="store_true",
                     help="send the MSE gripper output unsnapped (v1.0 rollout)")
-    ap.add_argument("--perception", choices=["gt", "noisy", "color"], default="gt",
-                    help="source of the policy's cube position (see module doc)")
+    ap.add_argument("--perception", choices=["gt", "noisy", "color"], default=None,
+                    help="source of the policy's cube position (see module doc); "
+                         "default gt for the policy, color for a skill")
     ap.add_argument("--pos-noise", type=float, default=0.0,
                     help="noisy: Gaussian noise per axis, mm")
     ap.add_argument("--pos-bias", type=float, default=0.0,
@@ -510,10 +597,15 @@ def main():
                          "through the Runner instead of the bare policy")
     ap.add_argument("--skill-arg", action="append", default=[],
                     help="skill mode: name=value, repeatable (e.g. object=cube_red)")
+    ap.add_argument("--start", type=str, default=None,
+                    help="skill mode: start state (skill_tasks.STARTS; default: the "
+                         "skill's standard start, others are handoffs)")
     ap.add_argument("--no-log", action="store_true", help="don't append to results")
     ap.add_argument("--wandb", action="store_true",
                     help="also log each evaluation to W&B (tracking.py)")
     args = ap.parse_args()
+    if args.perception is None:
+        args.perception = "color" if args.skill else "gt"
     import tracking
     eval_set = tracking.eval_set_id(HELDOUT_SEED, args.positions)
 
@@ -523,15 +615,27 @@ def main():
     attempts = 1 if args.skill else args.attempts
     mode = f"skill:{args.skill}" if args.skill else "policy"
     ptag = perception_tag(args)
+    stages, start, protocol = STAGES, "", tracking.PROTOCOL
+    if args.skill:
+        import skill_tasks
+        start = args.start or skill_tasks.STARTS[args.skill][0]
+        if start not in skill_tasks.STARTS[args.skill]:
+            ap.error(f"--start for {args.skill}: one of {skill_tasks.STARTS[args.skill]}")
+        if args.skill != "pick":
+            stages = skill_tasks.TRACKERS[args.skill].stages
+            protocol = skill_tasks.PROTOCOL[args.skill]
+    checkpoints = args.checkpoints or (["scripted"] if args.skill == "home" else [])
+    if not checkpoints:
+        ap.error("give at least one checkpoint")
 
-    for path in args.checkpoints:
+    for path in checkpoints:
         name = os.path.basename(path)
         if args.skill:
             from skills import LIBRARY
-            skill = LIBRARY[args.skill](checkpoint=path)
+            skill = LIBRARY[args.skill](checkpoint=None if path == "scripted" else path)
             skill_args = dict(a.split("=", 1) for a in args.skill_arg)
-            rows, info = evaluate_skill(env, skill, skill_args, positions, args.max_steps,
-                                        args.min_visible)
+            rows, info = evaluate_skill(env, skill, args.skill, start, skill_args, positions,
+                                        args.max_steps, args.min_visible, oracle=ptag == "gt")
             agent = skill.agent
             errs_raw, calls, rejects = info["errors"], info["calls"], info["rejects"]
         else:
@@ -543,18 +647,26 @@ def main():
         errs = np.array(errs_raw) * 1000 if len(errs_raw) else np.zeros(1)
         err_med, err_p95 = np.median(errs), np.percentile(errs, 95)
         reject = 100 * rejects / max(1, calls)
-        m = summarize(rows, attempts)
+        m = summarize(rows, attempts, stages)
 
-        print(f"\n== {name}  {args.label}  mode={mode}  (frame={agent.frame}, "
-              f"grip={agent.grip_loss}{', raw' if args.raw_grip else ''}, "
-              f"time={agent.time_feature}, perception={ptag})")
+        frame = getattr(agent, "frame", "scripted")
+        print(f"\n== {name}  {args.label}  mode={mode}{'  start=' + start if start else ''}  "
+              f"(frame={frame}, grip={getattr(agent, 'grip_loss', '-')}"
+              f"{', raw' if args.raw_grip else ''}, time={getattr(agent, 'time_feature', '-')}, "
+              f"perception={ptag})")
         retry = (f"success@{attempts} {m['success_k']:5.1f}%   attempts {m['mean_attempts']:.2f}   "
                  if attempts > 1 else "")
+        lifted = f"lifted@1 {m['lifted_1']:5.1f}%" if stages is STAGES else ""
         print(f"   stage score {m['stage_score']:5.1f}   success@1 {m['success_1']:5.1f}%   "
-              f"{retry}lifted@1 {m['lifted_1']:5.1f}%")
+              f"{retry}{lifted}")
         print("   attempt 1 stage rates: " + "  ".join(
-            f"{s} {m[f'rate_{s}']:.0f}%" for s in STAGES))
-        print(f"   succeeded on attempt 1/2/…: {m['att_hist']}   failed: {m['failed']}")
+            f"{s} {v:.0f}%" for s, v in m["stage_rates"].items()))
+        print(f"   succeeded on attempt 1/2/…: {m['att_hist']}   failed: {m['failed']}"
+              + (f"   start state failed (not scored): {m['start_failed']}"
+                 if m["start_failed"] else ""))
+        if not np.isnan(m["goal_err_med_mm"]):
+            print(f"   final distance to target: median {m['goal_err_med_mm']:.1f} mm  "
+                  f"p95 {m['goal_err_p95_mm']:.1f} mm")
         if ptag != "gt":
             print(f"   cube position error: median {err_med:.1f} mm  p95 {err_p95:.1f} mm"
                   + (f"   detections rejected {reject:.1f}%" if ptag.startswith("color") else ""))
@@ -562,39 +674,50 @@ def main():
             print(f"   skill-reported success {m['reported_success']:.1f}%   success signal: "
                   f"precision {m['signal_precision']:.1f}%  recall {m['signal_recall']:.1f}%   "
                   f"failure reasons {m['failure_reasons']}")
-        is_baseline = mode == "policy" and ptag == "gt" and not args.raw_grip
-        report = regression_report(m, rows, name, is_baseline)
+        is_baseline = ptag == "gt" and not args.raw_grip and (
+            mode == "policy" or (args.skill and args.skill != "pick"))
+        report = regression_report(m, rows, name, is_baseline, mode, start, stages)
         if args.wandb:
             log_eval_to_wandb(args, path, name, mode, ptag, attempts, eval_set, agent, m, rows,
                               report, err_med, err_p95, reject,
-                              dict(a.split("=", 1) for a in args.skill_arg))
+                              dict(a.split("=", 1) for a in args.skill_arg), stages,
+                              protocol, start)
 
         if not args.no_log:
             stem = name.replace(".pt", "")
+            standard = not args.skill or start == skill_tasks.STARTS[args.skill][0]
             run_id = "__".join(x for x in [args.label or "nolabel", stem,
-                                           mode.replace(":", "-"), ptag] if x)
+                                           mode.replace(":", "-"), ptag,
+                                           "" if standard else start] if x)
             if ptag == "noisy":
                 run_id += f"_n{args.pos_noise:g}_b{args.pos_bias:g}"
-            episodes = write_episodes(run_id, rows)
+            episodes = write_episodes(run_id, rows, stages)
             values = {
                 "date": datetime.date.today().isoformat(), "commit": git_commit(),
-                "label": args.label, "checkpoint": name, "frame": agent.frame,
-                "grip_loss": agent.grip_loss, "raw_grip": args.raw_grip,
-                "time_feature": agent.time_feature, "positions": args.positions,
+                "label": args.label, "checkpoint": name, "frame": frame,
+                "grip_loss": getattr(agent, "grip_loss", ""), "raw_grip": args.raw_grip,
+                "time_feature": getattr(agent, "time_feature", ""), "positions": args.positions,
                 "attempts": attempts, "perception": ptag,
                 "pos_noise_mm": f"{args.pos_noise:g}", "pos_bias_mm": f"{args.pos_bias:g}",
                 "perception_hz": f"{args.perception_hz:g}",
                 "pos_err_med_mm": f"{err_med:.2f}", "pos_err_p95_mm": f"{err_p95:.2f}",
                 "detect_reject_pct": f"{reject:.1f}", "mode": mode, "episodes": episodes,
-                "eval_set": eval_set, "protocol": tracking.PROTOCOL,
+                "eval_set": eval_set, "protocol": protocol, "start": start,
+                "stage_rates": json.dumps({k: round(v, 1) for k, v in m["stage_rates"].items()}),
+                "goal_err_med_mm": "" if np.isnan(m["goal_err_med_mm"])
+                else f"{m['goal_err_med_mm']:.1f}",
+                "goal_err_p95_mm": "" if np.isnan(m["goal_err_p95_mm"])
+                else f"{m['goal_err_p95_mm']:.1f}",
+                "start_failed": m["start_failed"],
             }
             for k in ["stage_score", "success_1", "success_k", "lifted_1"] + \
                      [f"rate_{s}" for s in STAGES]:
-                values[k] = f"{m[k]:.1f}"
+                values[k] = f"{m[k]:.1f}" if k in m and not np.isnan(m[k]) else ""
             values["mean_attempts"] = f"{m['mean_attempts']:.2f}"
             for k in ["reported_success", "signal_precision", "signal_recall"]:
                 values[k] = f"{m[k]:.1f}" if k in m else ""
             values["failure_reasons"] = m.get("failure_reasons", "")
+            migrate_results()
             new = not os.path.exists(RESULTS)
             with open(RESULTS, "a") as f:
                 if new:

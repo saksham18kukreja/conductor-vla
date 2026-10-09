@@ -112,7 +112,11 @@ def load_demos(path, val_frac=0.1, seed=0, frame="world", time_feature=False):
     correlated, so a random transition split leaks the validation set."""
     d = np.load(path, allow_pickle=True)
     obs, act = d["obs"], d["act"]
-    if frame != "world":
+    skill = str(d["skill"]) if "skill" in d else "pick"
+    if (skill != "pick") != (frame == "stored"):
+        raise SystemExit(f"{path} holds {skill} demos: use --frame stored for "
+                         "collect_skill_demos.py files, world/gripper/both for pick")
+    if frame not in ("world", "stored"):
         obs = frame_features(obs, demo_tcp_mats(obs), frame)
     starts, lengths = d["episode_starts"], d["episode_lengths"]
     if time_feature:
@@ -170,8 +174,10 @@ def main():
     ap.add_argument("--eval-episodes", type=int, default=50)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", type=str, default="../models/bc_policy.pt")
-    ap.add_argument("--frame", choices=["world", "gripper", "both"], default="world",
-                    help="coordinate frame for the observation (see frame_features)")
+    ap.add_argument("--frame", choices=["world", "gripper", "both", "stored"], default="world",
+                    help="coordinate frame for the observation (see frame_features); "
+                         "stored: use the observation as collected (place/push demos "
+                         "from collect_skill_demos.py, see skills/features.py)")
     ap.add_argument("--grip-loss", choices=["mse", "bce"], default="mse",
                     help="mse: regress the gripper like the joints; bce: classify "
                          "open/closed from a logit")
@@ -179,6 +185,11 @@ def main():
                     help="weight of the bce gripper term relative to the joint mse")
     ap.add_argument("--time-feature", action="store_true",
                     help="append steps-since-gripper-closed to the observation")
+    ap.add_argument("--obs-std-floor", type=float, default=0.0,
+                    help="lower bound on each input's normalisation std. A feature "
+                         "that never varies in the demos (e.g. the cube's y offset "
+                         "in the fingers during place) otherwise turns a few mm at "
+                         "rollout into hundreds of standard deviations")
     ap.add_argument("--label", type=str, default="",
                     help="version label for tracking, e.g. v3.0")
     ap.add_argument("--wandb", action="store_true",
@@ -199,6 +210,7 @@ def main():
     torch.backends.cudnn.allow_tf32 = True
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
+    skill = str(np.load(args.demos, allow_pickle=True).get("skill", "pick"))
     (tr_o, tr_a), (va_o, va_a), n_tr, n_va = load_demos(args.demos, seed=args.seed,
                                                      frame=args.frame,
                                                      time_feature=args.time_feature)
@@ -206,7 +218,7 @@ def main():
           f"val {va_o.shape[0]} / {n_va} episodes")
 
     # Normalise from the training split only.
-    obs_mean, obs_std = tr_o.mean(0), tr_o.std(0) + 1e-6
+    obs_mean, obs_std = tr_o.mean(0), np.maximum(tr_o.std(0), args.obs_std_floor) + 1e-6
     act_mean, act_std = tr_a.mean(0), tr_a.std(0) + 1e-6
     if args.grip_loss == "bce":
         # Leave the 0/1 gripper label unnormalised so output 7 is a plain logit.
@@ -268,8 +280,18 @@ def main():
                 "obs_dim": tr_o.shape[1], "act_dim": tr_a.shape[1],
                 "hidden": args.hidden, "frame": args.frame,
                 "grip_loss": args.grip_loss, "time_feature": args.time_feature,
-                "data": data, "train_args": vars(args)}, out)
+                "data": data, "train_args": vars(args), "skill": skill}, out)
     print(f"saved {out}")
+
+    if skill != "pick":
+        # This rollout is pick-only; place/push are scored by the benchmark.
+        print(f"\n{skill} policy: evaluate with benchmark.py --skill {skill}")
+        if run:
+            tracking.log_checkpoint(run, out, {"label": args.label, "data": data,
+                                               "skill": skill, "frame": args.frame,
+                                               "grip_loss": args.grip_loss, "seed": args.seed})
+            run.finish()
+        return
 
     # The number that actually matters.
     print(f"\nrolling out {args.eval_episodes} episodes...")

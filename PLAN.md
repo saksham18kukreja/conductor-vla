@@ -173,17 +173,31 @@ position error and failure rate logged for each perception mode. **Met
 
 Question: *what does a skill need to expose to be usable by a harness?*
 
-- [ ] **Skill API**: `start conditions → run → result`, with a success
+- [x] **Skill API**: `start conditions → run → result`, with a success
       signal, failure signals, a timeout and a result object
-      (status, final state, reason for failure).
-- [ ] **Wrap cube-lift v3.0** as the first skill.
+      (status, final state, reason for failure). (v4.1)
+- [x] **Wrap cube-lift v3.0** as the first skill. (v4.1)
 - [ ] **Remove the expert's hidden timer** (lift once the fingers stop
       closing), so the skill doesn't depend on a fixed hold that won't exist
       in other skills.
-- [ ] **Add 2–3 skills**: place-at-target, push, retreat/home. Each gets a
-      scripted expert, then a BC policy with the v3 recipe.
+- [x] **Add 2–3 skills**: place, push (BC), home (scripted). See the
+      2026-10-07 Log row and SKILLS.md. Full 3-seed camera benchmark only
+      partly run (see "Open from 2026-10-07").
 - [ ] **Handoff tests**: start each skill from other skills' end states,
       plus perturbed starts. Record skill success vs handoff success.
+      Starts exist (`benchmark.py --start`, skill_tasks.py); partly run.
+
+**Open from 2026-10-07** (stopped mid-benchmark):
+- Train push seeds 1, 2 (`train_bc.py --demos ../demos/push3000_n4_j01.npz
+  --frame stored --grip-loss bce --obs-std-floor 0.01 --seed N`).
+- Run the 200-position benchmarks still missing: place color s2; place
+  `--start pick` s1, s2; pick `--start after_place` s2, `after_push` s0–2;
+  push gt + color + `--start after_place` s0–2.
+- Pick after push fails (4/20 as push leaves it, 15/20 with the gripper
+  opened, 20/20 opened + home): decide where the fix lives (pick
+  precondition, push ends open, or the orchestrator inserts open + home).
+- Commit (nothing from this session is committed; result rows carry the old
+  commit 55e818d) and tag.
 
 Done when: each skill has skill success and handoff success, logged.
 
@@ -276,6 +290,19 @@ needs it.
 - **Memory can't help at step 0.** Holding the last estimate covers occlusion
   mid-task, but the only real occlusion was at the start. A skill needs a
   perception precondition before it starts.
+- **Normalise with a floor.** A feature that never varies in the demos (the
+  cube's y offset in the fingers) turned a few mm at rollout into hundreds
+  of standard deviations; place went 0% until `--obs-std-floor`.
+- **Estimate rate and noise matter more for moving objects.** A 10 Hz
+  estimate of a carried cube lags ~12 mm (place 0/30 vs 27/30 at 50 Hz), and
+  a policy trained on exact positions failed with 1 mm noise. Fixes: track
+  held objects from proprioception, train with observation noise.
+- **Joint-space BC drifts along the arm's redundancy.** Fixed with a posture
+  term in the expert plus DART noise.
+- **Occlusion is skill-specific.** Pushing toward the robot hides the cube
+  behind the hand; a contact motion model in the world model fixed it.
+- **Handoffs fail on state the next skill never trained from**: pick after
+  push (gripper closed, arm low) succeeds 20%.
 - **A retry only helps if the failure leaves a state the skill can handle.**
   v2.0's dropped cubes landed outside the training range and retries couldn't
   recover them. This is the handoff bottleneck, seen already with one skill.
@@ -296,4 +323,5 @@ needs it.
 | 2026-09-28 | — | Perception error budget (noisy cube position, 7 settings) | ≤2 mm random / ≤5 mm offset keeps ~100%; σ 10 mm → 64% |
 | 2026-09-29 | v4.0 | Camera + color detector replace the simulator's cube position | Success@1 99.3%, Success@3 99.8%; failures = start-of-episode blind spot |
 | 2026-09-29 | v4.1 | Skill abstraction + `pick` skill (preconditions, observable termination), evaluated in the unified benchmark | Success@1 95.0% (3/3 seeds); all 10 failures = `target_not_detected` refusals; success signal precision/recall 100% |
+| 2026-10-07 | place/push/home v1.0 | Skill library grows to 4: scripted experts without hidden timers (place: joint-space tuck first; push: x leg then y leg, line following), BC on 29-d goal_obs with obs noise (≤4 mm) + DART joint noise (0.01 rad) + std floor; world model tracks held objects with the gripper and pushes hidden objects with the pusher | place 100% gt (3/3 seeds) and 100% camera (2 seeds run), 3 mm error; push s0 96% camera (50 pos); home 100%; pick after place 100%, after push 20% (handoff) |
 | 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |
