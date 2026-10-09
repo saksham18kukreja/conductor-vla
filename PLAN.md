@@ -188,11 +188,12 @@ Question: *what does a skill need to expose to be usable by a harness?*
       Starts exist (`benchmark.py --start`, skill_tasks.py); partly run.
 
 **Open from 2026-10-07** (stopped mid-benchmark):
-- Train push seeds 1, 2 (`train_bc.py --demos ../demos/push3000_n4_j01.npz
-  --frame stored --grip-loss bce --obs-std-floor 0.01 --seed N`).
 - Run the 200-position benchmarks still missing: place color s2; place
   `--start pick` s1, s2; pick `--start after_place` s2, `after_push` s0–2;
-  push gt + color + `--start after_place` s0–2.
+  push `--start after_place` s0–2.
+- Push camera failures beyond the start blind spot (30 refusals over 3
+  seeds): 5 `object_dropped` (3 after reaching the target) and 1 false
+  success (s1). Likely the hidden cube's estimate behind the pusher.
 - Pick after push fails (4/20 as push leaves it, 15/20 with the gripper
   opened, 20/20 opened + home): decide where the fix lives (pick
   precondition, push ends open, or the orchestrator inserts open + home).
@@ -323,5 +324,6 @@ needs it.
 | 2026-09-28 | — | Perception error budget (noisy cube position, 7 settings) | ≤2 mm random / ≤5 mm offset keeps ~100%; σ 10 mm → 64% |
 | 2026-09-29 | v4.0 | Camera + color detector replace the simulator's cube position | Success@1 99.3%, Success@3 99.8%; failures = start-of-episode blind spot |
 | 2026-09-29 | v4.1 | Skill abstraction + `pick` skill (preconditions, observable termination), evaluated in the unified benchmark | Success@1 95.0% (3/3 seeds); all 10 failures = `target_not_detected` refusals; success signal precision/recall 100% |
+| 2026-10-08 | push v1.0 | 3 seeds, 200 held-out positions | gt 99.0 / 100 / 100% (mean 99.7%); camera 92.0 / 94.0 / 95.0% (mean 93.7%), 10 of each seed's failures = start blind-spot refusals; ~7 mm final error |
 | 2026-10-07 | place/push/home v1.0 | Skill library grows to 4: scripted experts without hidden timers (place: joint-space tuck first; push: x leg then y leg, line following), BC on 29-d goal_obs with obs noise (≤4 mm) + DART joint noise (0.01 rad) + std floor; world model tracks held objects with the gripper and pushes hidden objects with the pusher | place 100% gt (3/3 seeds) and 100% camera (2 seeds run), 3 mm error; push s0 96% camera (50 pos); home 100%; pick after place 100%, after push 20% (handoff) |
 | 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |
