@@ -47,7 +47,10 @@ success, the precision/recall of that signal against ground truth, and failure
 reasons. pick uses the stages above; place, push and home have their own
 stages, start states (--start, standard or a handoff from another skill's end
 state) and targets, defined in skill_tasks.py. They also report the final
-distance from the target (goal error).
+distance from the target (goal error). --recover adds the first orchestrator
+rule: a skill that refuses to start is sent to the recovery pose (home, fingers
+open) and tried once more (skills/recovery.py); the mode becomes
+skill:NAME+recover.
 
 Every logged run writes a per-position record to results/episodes/ and, unless
 it is itself the ground-truth baseline, prints a regression report against the
@@ -60,6 +63,8 @@ positions that regressed.
   python benchmark.py ../models/bc_place3000_s0.pt --label place-v1.0 --skill place
   python benchmark.py ../models/bc_place3000_s0.pt --label place-v1.0 --skill place --start pick
   python benchmark.py --label home-v1.0 --skill home --start after_push
+  python benchmark.py <ckpt> --label v4.2 --skill pick --skill-arg object=cube_red \
+      --start after_push --recover
 """
 
 import argparse
@@ -292,14 +297,17 @@ def evaluate(env, agent, perception, positions, attempts, max_steps):
 
 
 def evaluate_skill(env, skill, skill_name, start, skill_args, positions, max_steps,
-                   min_visible, oracle):
+                   min_visible, oracle, recover=False):
     """Skill mode: the skill runs through the Runner, one call per position
     (retries are the orchestrator's job). pick is scored with the same
     StageTracker as policy mode; place/push/home with skill_tasks trackers.
     Episodes whose start state could not be produced are recorded as skipped
-    and left out of the metrics."""
+    and left out of the metrics. recover: a refusal to start (target not
+    visible, wrong start state) sends the arm to the recovery pose and the
+    skill gets one more try (skills/recovery.py)."""
     import skill_tasks
     from skills import LIBRARY, Runner
+    from skills.recovery import execute_with_recovery
     from skills.world import WorldModel
 
     world = WorldModel(env, min_visible=min_visible, oracle=oracle)
@@ -320,6 +328,7 @@ def evaluate_skill(env, skill, skill_name, start, skill_args, positions, max_ste
     if start == "pick":  # handoff: the learned pick skill produces the start
         pick_runner = Runner(env, world, timeout_steps=max_steps)
         pick_runner.pick_skill = LIBRARY["pick"]()
+    recover_skill = LIBRARY["recover"]() if recover else None
     rows = []
     calls = rejects = 0
     for idx, xy in enumerate(positions):
@@ -335,7 +344,11 @@ def evaluate_skill(env, skill, skill_name, start, skill_args, positions, max_ste
         else:
             tracker = skill_tasks.TRACKERS[skill_name](env, goal)
         n0, r0 = world.detect_calls, world.detect_rejects
-        res = runner.execute(skill, **args)
+        if recover:
+            res, log = execute_with_recovery(runner, skill, recover_skill, **args)
+            recovered = any(r.skill == recover_skill.name for r in log)
+        else:
+            res, recovered = runner.execute(skill, **args), False
         calls += world.detect_calls - n0  # world.reset() per episode clears the counters
         rejects += world.detect_rejects - r0
         if skill_name == "pick":
@@ -344,7 +357,7 @@ def evaluate_skill(env, skill, skill_name, start, skill_args, positions, max_ste
             success, goal_err = tracker.finish(), tracker.goal_err()
         rows.append(dict(idx=idx, first=tracker.best, success=success, attempts=1,
                          reported=res.ok, reason=res.reason.value, goal_err=goal_err,
-                         skipped=False))
+                         skipped=False, recovered=recovered))
     info = {"errors": errors, "calls": calls, "rejects": rejects}
     return rows, info
 
@@ -377,7 +390,8 @@ COLUMNS = (["date", "commit", "label", "checkpoint", "frame", "grip_loss", "raw_
            + [f"rate_{s}" for s in STAGES] + PERCEPTION_COLS
            + ["mode", "reported_success", "signal_precision", "signal_recall",
               "failure_reasons", "episodes", "eval_set", "protocol",
-              "start", "stage_rates", "goal_err_med_mm", "goal_err_p95_mm", "start_failed"])
+              "start", "stage_rates", "goal_err_med_mm", "goal_err_p95_mm", "start_failed",
+              "recoveries"])
 
 
 def summarize(rows, attempts, stages=STAGES):
@@ -394,6 +408,7 @@ def summarize(rows, attempts, stages=STAGES):
         "lifted_1": 100 * np.mean(first >= STAGES.index("lift")) if stages is STAGES
         else float("nan"),
         "start_failed": skipped,
+        "recoveries": sum(bool(r.get("recovered")) for r in rows),
     }
     m["stage_rates"] = {s: 100 * np.mean(first >= i) for i, s in enumerate(stages)}
     if stages is STAGES:
@@ -435,15 +450,18 @@ def write_episodes(run_id, rows, stages=STAGES):
     os.makedirs(EPISODES, exist_ok=True)
     path = os.path.join(EPISODES, f"{run_id}.tsv")
     goal = any("goal_err" in r and not np.isnan(r["goal_err"]) for r in rows)
+    rec = any("recovered" in r for r in rows)
     with open(path, "w") as f:
         f.write("idx\tfirst_stage\tsuccess\tattempts\treported\treason"
-                + ("\tgoal_err_mm" if goal else "") + "\n")
+                + ("\tgoal_err_mm" if goal else "") + ("\trecovered" if rec else "") + "\n")
         for r in rows:
             stage = stages[r["first"]] if r["first"] >= 0 else "none"
             f.write(f"{r['idx']}\t{stage}\t{int(r['success'])}\t{r['attempts']}\t"
                     f"{r['reported']}\t{r['reason']}")
             if goal:
                 f.write(f"\t{1000 * r['goal_err']:.1f}")
+            if rec:
+                f.write(f"\t{int(bool(r.get('recovered')))}")
             f.write("\n")
     return os.path.basename(path)
 
@@ -600,6 +618,9 @@ def main():
     ap.add_argument("--start", type=str, default=None,
                     help="skill mode: start state (skill_tasks.STARTS; default: the "
                          "skill's standard start, others are handoffs)")
+    ap.add_argument("--recover", action="store_true",
+                    help="skill mode: on a refusal to start (target not visible, wrong "
+                         "start state) go to the recovery pose and try once more")
     ap.add_argument("--no-log", action="store_true", help="don't append to results")
     ap.add_argument("--wandb", action="store_true",
                     help="also log each evaluation to W&B (tracking.py)")
@@ -613,7 +634,11 @@ def main():
     positions = heldout_positions(args.positions)
     env = FrankaCubeLift()
     attempts = 1 if args.skill else args.attempts
+    if args.recover and not args.skill:
+        ap.error("--recover needs --skill")
     mode = f"skill:{args.skill}" if args.skill else "policy"
+    if args.recover:
+        mode += "+recover"
     ptag = perception_tag(args)
     stages, start, protocol = STAGES, "", tracking.PROTOCOL
     if args.skill:
@@ -635,7 +660,8 @@ def main():
             skill = LIBRARY[args.skill](checkpoint=None if path == "scripted" else path)
             skill_args = dict(a.split("=", 1) for a in args.skill_arg)
             rows, info = evaluate_skill(env, skill, args.skill, start, skill_args, positions,
-                                        args.max_steps, args.min_visible, oracle=ptag == "gt")
+                                        args.max_steps, args.min_visible, oracle=ptag == "gt",
+                                        recover=args.recover)
             agent = skill.agent
             errs_raw, calls, rejects = info["errors"], info["calls"], info["rejects"]
         else:
@@ -663,7 +689,8 @@ def main():
             f"{s} {v:.0f}%" for s, v in m["stage_rates"].items()))
         print(f"   succeeded on attempt 1/2/…: {m['att_hist']}   failed: {m['failed']}"
               + (f"   start state failed (not scored): {m['start_failed']}"
-                 if m["start_failed"] else ""))
+                 if m["start_failed"] else "")
+              + (f"   recovered before starting: {m['recoveries']}" if args.recover else ""))
         if not np.isnan(m["goal_err_med_mm"]):
             print(f"   final distance to target: median {m['goal_err_med_mm']:.1f} mm  "
                   f"p95 {m['goal_err_p95_mm']:.1f} mm")
@@ -674,7 +701,7 @@ def main():
             print(f"   skill-reported success {m['reported_success']:.1f}%   success signal: "
                   f"precision {m['signal_precision']:.1f}%  recall {m['signal_recall']:.1f}%   "
                   f"failure reasons {m['failure_reasons']}")
-        is_baseline = ptag == "gt" and not args.raw_grip and (
+        is_baseline = ptag == "gt" and not args.raw_grip and not args.recover and (
             mode == "policy" or (args.skill and args.skill != "pick"))
         report = regression_report(m, rows, name, is_baseline, mode, start, stages)
         if args.wandb:
@@ -709,6 +736,7 @@ def main():
                 "goal_err_p95_mm": "" if np.isnan(m["goal_err_p95_mm"])
                 else f"{m['goal_err_p95_mm']:.1f}",
                 "start_failed": m["start_failed"],
+                "recoveries": m["recoveries"] if args.recover else "",
             }
             for k in ["stage_score", "success_1", "success_k", "lifted_1"] + \
                      [f"rate_{s}" for s in STAGES]:

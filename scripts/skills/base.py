@@ -34,6 +34,9 @@ class Reason(str, Enum):
     NONE = "none"
     INVALID_ARGS = "invalid_args"
     PRECONDITION_FAILED = "precondition_failed"
+    # the robot is not in a start state the skill handles (e.g. fingers closed);
+    # an orchestrator can fix it with the recovery pose (skills/recovery.py)
+    START_STATE = "start_state"
     TARGET_NOT_DETECTED = "target_not_detected"
     UNREACHABLE = "unreachable"
     GRASP_MISSED = "grasp_missed"

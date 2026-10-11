@@ -38,3 +38,28 @@ class HomeSkill(Skill):
         if self.expert.timed_out:
             return Check(Status.FAILURE, Reason.TIMEOUT, "arm did not reach home")
         return Check()
+
+
+class RecoverSkill(HomeSkill):
+    """The recovery pose: home with the fingers open (unless holding).
+
+    Home is every skill's standard start and the camera's clearest view of the
+    table, so an orchestrator can return here when a skill refuses to start
+    (target not visible, fingers closed) and try again. See skills/recovery.py.
+    """
+
+    name = "recover"
+    description = "Open the gripper (unless holding) and move the arm to the start posture."
+    version = "v1.0 (scripted)"
+    effects = "arm at the start posture, fingers open unless holding"
+
+    def reset(self, world):
+        from experts import ScriptedHome
+        grip = GRIPPER_CLOSE if world.holding is not None else GRIPPER_OPEN
+        self.expert = ScriptedHome(world.env, gripper_ctrl=grip)
+
+    def check(self, world):
+        c = super().check(world)
+        if c.status == Status.SUCCESS and world.holding is None and world.gripper_width < 0.075:
+            return Check()  # home, but the fingers are still opening
+        return c
