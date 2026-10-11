@@ -6,6 +6,14 @@ now is still state -- but the point of logging them separately is that the
 expert's advantage is explicit, not baked into the dataset.
 
   python collect_demos.py --episodes 300 --out ../demos/state_demos.npz
+
+--close-trigger settled|contact: the expert lifts once the fingers stop
+closing, or as soon as they reach the cube's width (both seen in the gripper
+width), instead of after a fixed 120-step hold that a policy can't observe
+(controller.ScriptedGrasp).
+
+  python collect_demos.py --episodes 3000 --close-trigger contact \
+      --out ../demos/contact3000.npz
 """
 
 import argparse
@@ -41,12 +49,12 @@ def observe(env):
     ).astype(np.float32)
 
 
-def collect_episode(env, cube_xy, max_steps=1000, noise=0.0, rng=None):
+def collect_episode(env, cube_xy, max_steps=1000, noise=0.0, rng=None, close_trigger="timer"):
     """Roll the expert. With noise>0, execute a perturbed action but label
     the state with the expert's *correct* action, so the dataset contains
     recovery behaviour off the nominal path (DART-style injection)."""
     env.reset(cube_xy=cube_xy)
-    pol = ScriptedGrasp(env)
+    pol = ScriptedGrasp(env, close_trigger=close_trigger)
 
     obs_list, act_list, phase_list = [], [], []
     for _ in range(max_steps):
@@ -93,6 +101,9 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--noise", type=float, default=0.0,
                     help="std [rad] of joint-target noise during execution")
+    ap.add_argument("--close-trigger", choices=["timer", "settled", "contact"], default="timer",
+                    help="when the expert lifts: after the fixed hold, once the fingers "
+                         "stop closing, or once they reach the cube's width")
     ap.add_argument("--keep-failures", action="store_true",
                     help="store unsuccessful episodes too (off by default)")
     args = ap.parse_args()
@@ -106,7 +117,7 @@ def main():
 
     for i in range(args.episodes):
         xy = np.array([0.55, 0.0]) + rng.uniform([-0.08, -0.15], [0.08, 0.15])
-        ep = collect_episode(env, xy, noise=args.noise, rng=rng)
+        ep = collect_episode(env, xy, noise=args.noise, rng=rng, close_trigger=args.close_trigger)
 
         n_timeout += int(ep["timed_out"])
         if not ep["success"]:
@@ -138,7 +149,8 @@ def main():
         meta=np.array(meta, dtype=np.float32),
         obs_labels=np.array(OBS_LABELS), act_labels=np.array(ACT_LABELS),
         collection=np.array({"episodes_requested": args.episodes, "seed": args.seed,
-                             "noise": args.noise, "keep_failures": args.keep_failures}),
+                             "noise": args.noise, "keep_failures": args.keep_failures,
+                             "close_trigger": args.close_trigger}),
     )
 
     print(f"\nepisodes requested {args.episodes}, kept {len(lengths)}, "

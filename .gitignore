@@ -18,6 +18,8 @@ videos/*
 !videos/system_color.mp4
 !videos/system_color_preview.gif
 !videos/skill_chain.mp4
+!videos/loop_recover.mp4
+!videos/loop_recover_preview.gif
 
 # W&B local run cache (runs live on wandb.ai)
 wandb/

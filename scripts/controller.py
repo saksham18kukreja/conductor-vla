@@ -122,8 +122,21 @@ class ScriptedGrasp:
         ("lift", 0, 0.020, 0.12, 300),
     ]
 
+    # close_trigger replaces the fixed 120-step hold, which a policy can't see:
+    #   "settled": close ends once the fingers have stopped (width moving
+    #     < SETTLE_RATE per step for SETTLE_STEPS steps). The fingers stop ~7
+    #     steps after the close command. Still a short hidden wait: 89% of the
+    #     settled-grip frames are labelled "stay", and the BC policy froze
+    #     there (v5.0 camera 69.5-94%).
+    #   "contact": close ends on the first step the fingers are at the cube's
+    #     width. A function of the current width alone, so no two identical
+    #     observations get opposite labels.
+    SETTLE_RATE = 5e-5  # m per control step
+    SETTLE_STEPS = 5
+    CONTACT_WIDTH = 2 * CUBE_HALF + 0.001  # m
+
     def __init__(self, env, hover_height=0.12, lift_height=0.25, grasp_offset=0.0,
-                 control_dt=0.02, leash=0.04, **ik_kwargs):
+                 control_dt=0.02, leash=0.04, close_trigger="timer", **ik_kwargs):
         self.env = env
         self.ik = DiffIK(env, **ik_kwargs)
         self.hover_height = hover_height
@@ -131,6 +144,9 @@ class ScriptedGrasp:
         self.grasp_offset = grasp_offset
         self.control_dt = control_dt
         self.leash = leash
+        if close_trigger not in ("timer", "settled", "contact"):
+            raise ValueError(close_trigger)
+        self.close_trigger = close_trigger
         self.phases = self.PHASES
         self.reset()
 
@@ -141,6 +157,8 @@ class ScriptedGrasp:
         self.done = False
         self.timed_out = False
         self.setpoint = self.env.tcp_pos.copy()
+        self.prev_width = None
+        self.still_steps = 0
 
     @property
     def phase(self):
@@ -196,7 +214,15 @@ class ScriptedGrasp:
         name, settle, tol, _, timeout = self.phases[self.phase_idx]
         self.phase_steps += 1
 
-        if name == "close":
+        if name == "close" and self.close_trigger == "settled":
+            w = self.env.gripper_width
+            moving = self.prev_width is None or abs(w - self.prev_width) >= self.SETTLE_RATE
+            self.still_steps = 0 if moving else self.still_steps + 1
+            self.prev_width = w
+            ready = self.still_steps >= self.SETTLE_STEPS
+        elif name == "close" and self.close_trigger == "contact":
+            ready = self.env.gripper_width <= self.CONTACT_WIDTH
+        elif name == "close":
             ready = self.phase_steps >= settle
         else:
             ready = np.linalg.norm(target_pos - self.env.tcp_pos) < tol

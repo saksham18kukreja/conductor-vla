@@ -8,7 +8,8 @@ Unlike ScriptedGrasp they have **no hidden timers**: every phase change is
 triggered by something a policy can observe (TCP position, gripper width,
 where the cube is relative to its target). The pick expert's fixed 120-step
 hold had to be patched into the policy's inputs (v3.0); these experts avoid
-the problem by construction.
+the problem by construction, and since v5.1 so does pick
+(ScriptedGrasp(close_trigger="contact")).
 
   ScriptedPlace  tuck into a carry posture, carry a held cube over a target,
                  lower it, open, retreat

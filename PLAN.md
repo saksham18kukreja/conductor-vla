@@ -106,6 +106,10 @@ benchmark** (200 unseen positions, strict hold-for-1-s success; 600/600).
 **v4.0: the same policy from camera input**: 99.3% Success@1, 99.8%
 Success@3 on the held-out benchmark (fixed RGB-D camera + color detector).
 
+**v5.1: pick without the hidden timer** (the pick skill's default): 20
+inputs, no counter, 100% with true positions and 95% through the skill with
+the camera, on 3/3 seeds.
+
 Limits:
 
 - A start-of-episode blind spot: the hand at its start pose hides cubes close
@@ -115,7 +119,6 @@ Limits:
 - Narrow task: unrotated cube, no noise or disturbances, and positions only
   within the training range. A dropped cube can land outside it, and the
   policy can't recover from there (seen in v2.0 retries).
-- The counter depends on the expert's fixed 120-step hold.
 
 ## Roadmap
 
@@ -177,9 +180,12 @@ Question: *what does a skill need to expose to be usable by a harness?*
       signal, failure signals, a timeout and a result object
       (status, final state, reason for failure). (v4.1)
 - [x] **Wrap cube-lift v3.0** as the first skill. (v4.1)
-- [ ] **Remove the expert's hidden timer** (lift once the fingers stop
-      closing), so the skill doesn't depend on a fixed hold that won't exist
-      in other skills.
+- [x] **Remove the expert's hidden timer** (v5.1): the expert lifts on the
+      first step the fingers reach the cube's width; no counter input. 100%
+      with true positions, 95% with the camera (3 seeds), same as v3.0/v4.1.
+      "Fingers stopped for 5 steps" (v5.0) still froze: any wait is a timer.
+      Open: seed 2 after place drops to 94.5% (11 failures); diagnose, and
+      run v3.0 s2 after_place for a baseline.
 - [x] **Add 2–3 skills**: place, push (BC), home (scripted). See the
       2026-10-07 Log row and SKILLS.md. Full 3-seed camera benchmark only
       partly run (see "Open from 2026-10-07").
@@ -189,14 +195,15 @@ Question: *what does a skill need to expose to be usable by a harness?*
 
 **Open from 2026-10-07** (stopped mid-benchmark):
 - Run the 200-position benchmarks still missing: place color s2; place
-  `--start pick` s1, s2; pick `--start after_place` s2, `after_push` s0–2;
+  `--start pick` s1, s2; pick `--start after_place` s2;
   push `--start after_place` s0–2.
 - Push camera failures beyond the start blind spot (30 refusals over 3
   seeds): 5 `object_dropped` (3 after reaching the target) and 1 false
   success (s1). Likely the hidden cube's estimate behind the pusher.
-- Pick after push fails (4/20 as push leaves it, 15/20 with the gripper
-  opened, 20/20 opened + home): decide where the fix lives (pick
-  precondition, push ends open, or the orchestrator inserts open + home).
+- [x] Pick after push: fixed in the orchestrator (option c, v4.2). Pick
+  refuses closed fingers (`START_STATE`), and the recovery rule sends the arm
+  to the recovery pose (home, fingers open) and retries: 35% → 100% (600/600,
+  3 seeds). See SKILLS.md → Recovery pose.
 - Commit (nothing from this session is committed; result rows carry the old
   commit 55e818d) and tag.
 
@@ -282,6 +289,11 @@ needs it.
   acts on something the observation doesn't contain (here, a timer), the
   policy can't copy it. Either expose it or remove it. This is a memory
   problem in miniature, and it will come back at the harness level.
+- **Any wait the policy can't see is a timer.** Replacing the 120-step hold
+  with "lift once the fingers have stopped for 5 steps" still froze (89% of
+  the identical-looking frames said stay). Triggering on the current width
+  alone fixed it with no extra input. Check a trigger by asking whether two
+  identical observations can get different labels.
 - **Diagnose by stage.** Breaking rollouts into reach / close / grasp / rise
   / lift found both failures quickly. The harness needs the same kind of
   failure attribution.
@@ -303,7 +315,13 @@ needs it.
 - **Occlusion is skill-specific.** Pushing toward the robot hides the cube
   behind the hand; a contact motion model in the world model fixed it.
 - **Handoffs fail on state the next skill never trained from**: pick after
-  push (gripper closed, arm low) succeeds 20%.
+  push (gripper closed, arm low) succeeds 20–35%. The cube was visible every
+  time (all failures `grasp_missed`), so "not visible → recover" alone
+  wouldn't have caught it; the skill has to declare its start state.
+- **A recovery pose plus declared start states fixes handoffs cheaply.**
+  Going home with open fingers before retrying took pick after push to 100%
+  without retraining anything. It can't fix the start blind spot, though:
+  there the arm is already home.
 - **A retry only helps if the failure leaves a state the skill can handle.**
   v2.0's dropped cubes landed outside the training range and retries couldn't
   recover them. This is the handoff bottleneck, seen already with one skill.
@@ -326,4 +344,7 @@ needs it.
 | 2026-09-29 | v4.1 | Skill abstraction + `pick` skill (preconditions, observable termination), evaluated in the unified benchmark | Success@1 95.0% (3/3 seeds); all 10 failures = `target_not_detected` refusals; success signal precision/recall 100% |
 | 2026-10-08 | push v1.0 | 3 seeds, 200 held-out positions | gt 99.0 / 100 / 100% (mean 99.7%); camera 92.0 / 94.0 / 95.0% (mean 93.7%), 10 of each seed's failures = start blind-spot refusals; ~7 mm final error |
 | 2026-10-07 | place/push/home v1.0 | Skill library grows to 4: scripted experts without hidden timers (place: joint-space tuck first; push: x leg then y leg, line following), BC on 29-d goal_obs with obs noise (≤4 mm) + DART joint noise (0.01 rad) + std floor; world model tracks held objects with the gripper and pushes hidden objects with the pusher | place 100% gt (3/3 seeds) and 100% camera (2 seeds run), 3 mm error; push s0 96% camera (50 pos); home 100%; pick after place 100%, after push 20% (handoff) |
+| 2026-10-10 | v4.2 | Recovery pose (`recover` = home + open fingers) and the first orchestrator rule: on a `TARGET_NOT_DETECTED` / `START_STATE` refusal, recover and retry once (`benchmark.py --recover`); pick's new start-state precondition: fingers open | Pick after push (camera) 35% (20 pos) → 100 / 100 / 100% (600/600, 3 seeds, all via recovery); standard and after_place starts unchanged (20/20, 0 recoveries) |
+| 2026-10-10 | v5.0 | Pick expert lifts once the fingers stop (5 still steps), no counter input (`--close-trigger settled`) | gt 95.0 / 100 / 98.0%; camera skill 85.0 / 94.0 / 69.5%; failures = grasp then freeze (timeouts), traced to 89% "stay" labels in identical settled-grip frames |
+| 2026-10-10 | v5.1 | Pick expert lifts on the first step the fingers reach the cube's width (`--close-trigger contact`), no counter input; pick skill default | gt 100 / 100 / 100% (600/600); camera skill 95.0 / 95.0 / 95.0%, all failures start blind-spot refusals; expert 200/200, episodes 25% shorter. Handoffs (camera): after_place 100 / 100 / 94.5% (s2: 7 timeouts, 4 drops; v3.0 s2 after_place never run, so no baseline); after_push + recover 100 / 100 / 100% |
 | 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |

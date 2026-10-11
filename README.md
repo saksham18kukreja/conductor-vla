@@ -6,7 +6,20 @@ controller (`scripts/controller.py`) generates demonstrations; an MLP policy
 position comes from a camera and detector instead of the simulator.
 
 This cube-lift policy is the first skill of a larger goal: a harness for an
-agentic robotics system. See [PLAN.md](PLAN.md) for the roadmap.
+agentic robotics system. See [PLAN.md](PLAN.md) for the roadmap and
+[SKILLS.md](SKILLS.md) for the skill library (pick, place, push, home) and the
+recovery pose.
+
+[![Skill loop with the recovery rule: pick, place, push, pick](videos/loop_recover_preview.gif)](videos/loop_recover.mp4)
+
+*Four skills in a row with no hand-written `home()` steps, camera perception,
+at 2× speed: pick (v5.1, no hidden timer) → place → push → pick. Push leaves
+the fingers closed, so the second pick refuses to start (`start_state`); the
+recovery rule sends the arm to the recovery pose (home, fingers open) and pick
+runs again. Episodes 1 and 2 finish the loop. In episode 3 push times out
+after place, a mid-run failure the rule doesn't handle (open in PLAN.md).
+Click for the full real-time video. Regenerate it with
+`python make_chain_video.py --chain loop --recover --out ../videos/loop_recover.mp4`.*
 
 [![v4.0 system: robot scene and detector view](videos/system_color_preview.gif)](videos/system_color.mp4)
 
@@ -30,7 +43,9 @@ lenient success on the 50-position set used while debugging; the held-out
 | v1.1 | Snap gripper to open/closed at rollout | 17 (world) | MSE, snapped | 98 / 96 / 76% | 90.0% |
 | v2.0 | Gripper as classifier; add gripper-frame cube position | 20 (both) | BCE logit | 100 / 92 / 80% | 90.7% |
 | v3.0 | Add steps-since-gripper-closed input | 21 (both + counter) | BCE logit | 100 / 100 / 100% | 100% |
-| **v4.0** | **Cube position from camera + color detector (v3.0 policy unchanged)** | **21, cube position estimated** | **BCE logit** | **not run on the debug set** | **—** |
+| v4.0 | Cube position from camera + color detector (v3.0 policy unchanged) | 21, cube position estimated | BCE logit | not run on the debug set | — |
+| v5.0 | Expert lifts once the fingers have stopped for 5 steps; counter input dropped | 20 (both) | BCE logit | 100 / 100 / 98% | 99.3% |
+| **v5.1** | **Expert lifts on the first step the fingers reach the cube's width; no counter** | **20 (both)** | **BCE logit** | **100 / 100 / 100%** | **100%** |
 
 What each version fixed:
 
@@ -49,6 +64,28 @@ What each version fixed:
 - **v4.0**: removes the simulator's true cube position from the policy's
   inputs. A fixed RGB-D camera and a color detector estimate it at 10 Hz; see
   [Perception](#perception-v40).
+- **v5.0**: removes the hidden timer at its source instead of patching it into
+  the inputs, so pick works like place and push. The fingers stop on the cube
+  ~7 steps after the close command; the other ~113 steps of the 120-step hold
+  were waiting. The expert now lifts once the fingers have stopped for 5
+  steps. That is still a short hidden wait: 89% of the "fingers settled, cube
+  on the table" frames are labelled stay, and the policy froze there
+  (97.7% with true positions, 69.5–94% with the camera).
+- **v5.1**: the expert lifts on the first step the fingers reach the cube's
+  width (≤ 41 mm), a function of the current width alone. No two identical
+  observations get opposite labels, and v3.0's results come back without the
+  counter input (100% with true positions, 95% with the camera, failures only
+  at the start blind spot). The expert still holds every cube (200/200, ≤ 2.3
+  mm slip) and its episodes are 25% shorter.
+
+Train v5.1 (the pick skill's default):
+
+```bash
+python collect_demos.py --episodes 3000 --close-trigger contact \
+    --out ../demos/contact3000.npz
+python train_bc.py --demos ../demos/contact3000.npz --frame both \
+    --grip-loss bce --seed 0 --out ../models/bc_contact3000_both_bce_s0.pt
+```
 
 Train v3.0:
 
@@ -58,7 +95,9 @@ python train_bc.py --demos ../demos/clean3000.npz --frame both \
     --out ../models/bc_clean3000_both_bce_time_s0.pt
 ```
 
-Checkpoints: `models/bc_clean3000_both_bce_time_s{0,1,2}.pt` (v3.0),
+Checkpoints: `models/bc_contact3000_both_bce_s{0,1,2}.pt` (v5.1),
+`models/bc_settled3000_both_bce_s{0,1,2}.pt` (v5.0),
+`models/bc_clean3000_both_bce_time_s{0,1,2}.pt` (v3.0),
 `models/bc_clean3000_both_bce_s{0,1,2}.pt` (v2.0). Re-score any checkpoint on
 the standard eval with `python eval_bc.py <checkpoint>...`.
 
@@ -78,7 +117,9 @@ number (`benchmark.py --raw-grip` reproduces v1.0).
 | v1.1 | 94.5 | 89.0% | 97.7% | 1.11 | 89.2% |
 | v2.0 | 95.4 | 86.8% | 93.0% | 1.08 | 92.3% |
 | v3.0 | 100 | 100% | 100% | 1.00 | 100% |
-| **v4.0** (camera) | **99.3** | **99.3%** | **99.8%** | **1.01** | **99.3%** |
+| v4.0 (camera) | 99.3 | 99.3% | 99.8% | 1.01 | 99.3% |
+| v5.0 | 98.9 | 97.7% | 98.0% | 1.00 | 97.7% |
+| **v5.1** | **100** | **100%** | **100%** | **1.00** | **100%** |
 
 Stage funnel, % of positions reaching each stage on attempt 1 (mean over seeds):
 
@@ -89,10 +130,15 @@ Stage funnel, % of positions reaching each stage on attempt 1 (mean over seeds):
 | v2.0 | 100 | 100 | 100 | 93.0 | 92.3 | 86.8 |
 | v3.0 | 100 | 100 | 100 | 100 | 100 | 100 |
 | v4.0 | 99.3 | 99.3 | 99.3 | 99.3 | 99.3 | 99.3 |
+| v5.0 | 100 | 100 | 100 | 98.0 | 97.7 | 97.7 |
+| v5.1 | 100 | 100 | 100 | 100 | 100 | 100 |
 
 What the results show:
 
 - **v3.0 holds on unseen positions**: 600/600 first-attempt strict successes.
+- **v5.1 matches v3.0 without the counter**: 600/600 with true positions.
+  Through the pick skill with the camera it scores 95.0% on every seed (the
+  v4.1 number), all failures `target_not_detected` at the start blind spot.
 - **v4.0 loses less than a point to perception** (99.3% first attempt, 99.8%
   within 3). All its failures are the start-of-episode blind spot described in
   [Perception](#perception-v40).
@@ -292,7 +338,9 @@ python collect_demos.py --episodes 3000 --out ../demos/clean3000.npz
   [Evaluation](#evaluation)). Earlier results use the lenient single-frame
   check `env.lifted()`.
 - Expert success: 100% (failed demos are discarded at collection time).
-- Expert phases: hover, descend, close (hold 120 steps), lift.
+- Expert phases: hover, descend, close, lift. Close ends after a fixed 120
+  steps (default, v1.0–v4.0), or since v5.1 on the first step the fingers
+  reach the cube's width (`--close-trigger contact`).
 
 ## Policy (v3.0)
 
@@ -349,7 +397,8 @@ scripts/   env, scripted expert, demo collection, BC training (train_bc.py),
            video
 models/    Panda + cube scene (MuJoCo Menagerie based) and BC checkpoints
 results/   benchmark results and plot, dataset sweep
-videos/    rollout videos (v1.0, v3.0), the v4.0 system video, README previews
+videos/    rollout videos (v1.0, v3.0), the v4.0 system video, the skill-loop
+           recovery video, README previews
 ```
 
 The controller follows patterns from

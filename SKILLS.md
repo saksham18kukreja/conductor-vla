@@ -17,7 +17,7 @@ the contract, so a scripted controller and a learned policy look the same.
 | **Termination** | per step: running, success, or failure with a reason; observable signals only |
 | **Effects** | the world change promised on success |
 | **Result** | status, reason code, message, steps, world snapshot |
-| **Internal state** | cleared on reset (e.g. pick's steps-closed counter) |
+| **Internal state** | cleared on reset (e.g. a learned skill's policy state) |
 
 **Lifecycle** (`Runner.execute`):
 
@@ -46,7 +46,8 @@ validate args ─► check preconditions ─► reset ─► [perception → ste
 7. **Retries belong to the orchestrator**, not to skills or the executor.
 
 **Failure codes** (shared, so an orchestrator/planner can react):
-`INVALID_ARGS`, `PRECONDITION_FAILED`, `TARGET_NOT_DETECTED`, `UNREACHABLE`,
+`INVALID_ARGS`, `PRECONDITION_FAILED`, `START_STATE` (the robot isn't in a start
+state the skill handles), `TARGET_NOT_DETECTED`, `UNREACHABLE`,
 `GRASP_MISSED`, `OBJECT_DROPPED`, `TIMEOUT`.
 
 **Two different success checks.** A skill's termination uses only what the
@@ -75,9 +76,9 @@ Grasp an object on the table and lift it 10 cm.
 
 | | |
 |---|---|
-| Version | v4.0: the v3.0 BC policy driven by the world model's estimate |
+| Version | v5.1: BC policy from an expert with no hidden timer (lifts once the fingers reach the cube's width), driven by the world model's estimate; no steps-since-closed input |
 | Parameters | `object`: object id, e.g. `cube_red` |
-| Preconditions | object detected (`TARGET_NOT_DETECTED` otherwise); gripper empty (`PRECONDITION_FAILED`) |
+| Preconditions | object detected (`TARGET_NOT_DETECTED` otherwise); gripper empty (`PRECONDITION_FAILED`); fingers open ≥ 70 mm (`START_STATE`; from closed fingers, as push leaves them, it missed 13/20 grasps) |
 | Success | gripper commanded closed, fingers stopped at 30–50 mm, estimated object centre ≥ 10 cm above rest, for 50 steps (1 s) |
 | Failures | `GRASP_MISSED`: fingers closed below 25 mm for 10 steps before any lift; `OBJECT_DROPPED`: the same after a lift; `TIMEOUT`: 700 steps |
 | Effects | `world.holding = object` |
@@ -86,7 +87,7 @@ Evaluate it:
 
 ```bash
 cd scripts
-python benchmark.py ../models/bc_clean3000_both_bce_time_s0.pt --label v4.1 \
+python benchmark.py ../models/bc_contact3000_both_bce_s0.pt --label v5.1 \
     --skill pick --skill-arg object=cube_red
 ```
 
@@ -98,6 +99,28 @@ world = WorldModel(env)
 result = Runner(env, world).execute(LIBRARY["pick"](), object="cube_red")
 print(result)   # pick({'object': 'cube_red'}) -> success in 380 steps
 ```
+
+## Recovery pose
+
+`recover()` (`skills/home.py`) is home with the fingers opened (kept closed
+if holding). Home is every skill's standard start and the camera's clearest
+view of the table, so it is the place to go back to when a skill can't start.
+
+`skills/recovery.py` holds the first orchestrator rule: if a skill refuses
+with `TARGET_NOT_DETECTED` or `START_STATE`, run `recover` and try the skill
+once more. It stops if the arm is already at the recovery pose and the
+target is still hidden (going there again changes nothing; this is the case
+for the start-of-episode blind spot, which needs a different viewing pose).
+Failures during a run (grasp missed, dropped) are not recovered by this rule.
+
+```python
+from skills.recovery import execute_with_recovery
+result, log = execute_with_recovery(runner, LIBRARY["pick"](), LIBRARY["recover"](),
+                                    object="cube_red")
+```
+
+Benchmark it with `benchmark.py --skill NAME --recover` (mode
+`skill:NAME+recover`).
 
 ## Adding a skill
 

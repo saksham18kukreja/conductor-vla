@@ -1,8 +1,11 @@
 """pick(object): grasp an object on the table and lift it 10 cm.
 
-Behaviour: the v4.0 BC policy (v3.0 checkpoint driven by the world model's
-cube estimate). Termination uses observable signals only: gripper command and
-width, and the camera's estimate of the object's height.
+Behaviour: the v5.1 BC policy driven by the world model's cube estimate. Its
+expert lifts as soon as the fingers reach the cube's width (no hidden hold
+timer), so the policy needs no steps-since-closed input; the v3.0 checkpoint
+(timer expert + counter input) still loads via `checkpoint=`. Termination uses
+observable signals only: gripper command and width, and the camera's estimate
+of the object's height.
 """
 
 import os
@@ -14,7 +17,7 @@ from env import TABLE_HEIGHT, CUBE_HALF
 from skills.base import Check, Reason, Skill, Status
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_CKPT = os.path.join(HERE, "..", "..", "models", "bc_clean3000_both_bce_time_s0.pt")
+DEFAULT_CKPT = os.path.join(HERE, "..", "..", "models", "bc_contact3000_both_bce_s0.pt")
 
 REST_Z = TABLE_HEIGHT + CUBE_HALF
 LIFT_HEIGHT = 0.10       # success: estimated centre this far above rest
@@ -28,7 +31,7 @@ OPEN_WIDTH = 0.070       # start state: fingers at least this open (fully open: 
 class PickSkill(Skill):
     name = "pick"
     description = "Grasp an object on the table and lift it 10 cm."
-    version = "v4.0"
+    version = "v5.1"
     params = {"object": "id of the object to pick, e.g. 'cube_red'"}
     effects = "gripper holding the object, object ~10 cm above the table"
 
