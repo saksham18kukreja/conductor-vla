@@ -14,7 +14,7 @@ import numpy as np
 import torch
 
 from env import TABLE_HEIGHT, CUBE_HALF
-from skills.base import Check, Reason, Skill, Status
+from skills.base import Check, Reason, Skill, StartState, Status
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CKPT = os.path.join(HERE, "..", "..", "models", "bc_contact3000_both_bce_s0.pt")
@@ -25,7 +25,6 @@ HOLD_STEPS = 50          # ... for 1 s
 HOLD_WIDTH = (0.030, 0.050)  # fingers stopped on a 40 mm cube
 EMPTY_WIDTH = 0.025      # fingers closed past this: nothing between them
 EMPTY_STEPS = 10         # ... for 0.2 s before declaring it
-OPEN_WIDTH = 0.070       # start state: fingers at least this open (fully open: 80 mm)
 
 
 class PickSkill(Skill):
@@ -34,6 +33,9 @@ class PickSkill(Skill):
     version = "v5.1"
     params = {"object": "id of the object to pick, e.g. 'cube_red'"}
     effects = "gripper holding the object, object ~10 cm above the table"
+    # Trained from open fingers only; from closed ones (as push leaves them)
+    # it missed 13/20 grasps. Any arm pose: after place it succeeds 100%.
+    start_state = StartState(fingers="open")
 
     def __init__(self, checkpoint=DEFAULT_CKPT, device=None):
         from benchmark import Agent  # checkpoint loading + observation/action mapping
@@ -53,11 +55,6 @@ class PickSkill(Skill):
                     f"{object} not detected (visible {100 * est.visible:.0f}%)")
         if world.holding is not None:
             return False, Reason.PRECONDITION_FAILED, f"already holding {world.holding}"
-        if world.gripper_width < OPEN_WIDTH:
-            # the policy only trained from open fingers; from closed ones (as
-            # push leaves them) it misses the grasp (13/20 grasp_missed)
-            return (False, Reason.START_STATE,
-                    f"fingers not open (width {1000 * world.gripper_width:.0f} mm)")
         return True, Reason.NONE, ""
 
     def reset(self, world, object):

@@ -10,7 +10,7 @@ import os
 
 import numpy as np
 
-from skills.base import Check, Reason, Skill, Status
+from skills.base import Check, Reason, Skill, StartState, Status
 from skills.features import REST_Z, in_target_range, parse_target
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -30,6 +30,10 @@ class PushSkill(Skill):
     params = {"object": "id of the object to push, e.g. 'cube_red'",
               "target": "zone name (center, left, right, near, far) or 'x,y' in metres"}
     effects = "object at the target, gripper clear above it"
+    # Trained from home only. From where place stops (hand above the cube,
+    # wrist turned ~90 deg) 40/60 succeeded, pushes toward -x 12/29; after
+    # recovering home first 59/60.
+    start_state = StartState(arm="home", fingers="open")
 
     def __init__(self, checkpoint=DEFAULT_CKPT, device=None):
         from skills.learned import GoalPolicy

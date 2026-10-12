@@ -7,8 +7,9 @@ camera's clearest view of the table, so for the refusals below one `recover`
 call followed by a second try is the whole policy:
 
   TARGET_NOT_DETECTED  the target isn't visible: the arm may be hiding it
-  START_STATE          the robot isn't in a start state the skill handles
-                       (e.g. pick with closed fingers, as push leaves them)
+  START_STATE          the robot isn't in one of the skill's declared start
+                       states (Skill.start_state, checked by the Runner), e.g.
+                       pick with closed fingers, push away from home
 
 Failures during a run (grasp missed, dropped) are not recovered here: a retry
 after those is a separate experiment (Phase 3), and the object may have moved
@@ -16,19 +17,14 @@ out of the skill's range. If the arm is already at the recovery pose and the
 target still isn't visible, going there again changes nothing, so it stops.
 """
 
-import numpy as np
-
-from skills.base import Reason
-from skills.home import HOME_TOL
+from skills.base import Reason, StartState
 
 RECOVERABLE = (Reason.TARGET_NOT_DETECTED, Reason.START_STATE)
 
 
 def at_recovery_pose(world):
-    from experts import ScriptedHome
-    q_home = ScriptedHome(world.env).q_home
-    return (np.abs(q_home - world.env.arm_qpos).max() < HOME_TOL
-            and (world.holding is not None or world.gripper_width >= 0.075))
+    pose = StartState(arm="home", fingers="any" if world.holding else "open")
+    return pose.check(world)[0]
 
 
 def execute_with_recovery(runner, skill, recover_skill, max_recoveries=1, **args):

@@ -13,11 +13,12 @@ recovery pose.
 [![Skill loop with the recovery rule: pick, place, push, pick](videos/loop_recover_preview.gif)](videos/loop_recover.mp4)
 
 *Four skills in a row with no hand-written `home()` steps, camera perception,
-at 2× speed: pick (v5.1, no hidden timer) → place → push → pick. Push leaves
-the fingers closed, so the second pick refuses to start (`start_state`); the
-recovery rule sends the arm to the recovery pose (home, fingers open) and pick
-runs again. Episodes 1 and 2 finish the loop. In episode 3 push times out
-after place, a mid-run failure the rule doesn't handle (open in PLAN.md).
+at 2× speed: pick (v5.1, no hidden timer) → place → push → pick. Each skill
+declares the start states it was trained from, and the harness checks them.
+Push only starts from home and place ends above the cube, so push refuses
+(`start_state`), the recovery rule sends the arm to the recovery pose (home,
+fingers open), and push runs. Push leaves the fingers closed, so the second
+pick refuses and recovers the same way. All three episodes finish the loop.
 Click for the full real-time video. Regenerate it with
 `python make_chain_video.py --chain loop --recover --out ../videos/loop_recover.mp4`.*
 
@@ -30,6 +31,43 @@ last estimate, red = no estimate yet); the white dot is the true centre. The
 last clip is the start-of-episode blind spot (seed 2, position 151): the hand
 hides the cube, attempt 1 fails, the retry succeeds. Click for the full
 real-time video.*
+
+## Skill handoffs
+
+A skill learned from demos is only reliable from the robot states its demos
+start from, and it can't tell when it is outside them: it doesn't refuse, it
+runs, misses and times out. So each skill declares its start states as part
+of its contract (`StartState(arm, fingers)` in `scripts/skills/base.py`), the
+Runner checks them before the first step and refuses with `START_STATE`, and
+the recovery rule (`scripts/skills/recovery.py`) sends the arm to the recovery
+pose (home, fingers open) and runs the skill again. Details in
+[SKILLS.md](SKILLS.md).
+
+| Skill | Start state | Why |
+|---|---|---|
+| pick | fingers open, any arm pose | from closed fingers (as push leaves them) 13/20 grasps missed |
+| push | arm at home, fingers open | trained from home only; from where place stops 40/60 |
+| place, home, recover | any | — |
+
+Handoff success with camera perception, 200 held-out positions, seeds
+0 / 1 / 2:
+
+| Handoff | Before start states | With start states + recovery |
+|---|---|---|
+| pick after push | 35% (20 positions) | 100 / 100 / 100% |
+| push after place | 70.0 / 75.0 / 75.5% | 99.0 / 99.0 / 98.0% |
+| pick after place | 100 / 100 / 94.5% | unchanged (no refusal) |
+
+Push after place failed because of the arm's start pose, not the cube's
+position: on the same scenes it succeeded 40/60 directly and 59/60 after going
+home first. Place ends with the hand above the cube and the wrist turned ~90°;
+from there the policy's first move was the same for every target, and pushes
+toward the robot (the pusher must reach the far side) succeeded 12/29.
+
+```bash
+python benchmark.py ../models/bc_push3000_s0.pt --label push-v1.1 --skill push \
+    --start after_place --recover
+```
 
 ## Versions
 

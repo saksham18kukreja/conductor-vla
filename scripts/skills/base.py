@@ -7,9 +7,15 @@ contract, so a scripted controller and a learned policy look the same.
 
 Lifecycle (Runner.execute):
 
-  validate args -> check preconditions -> reset -> [step -> check]* -> Result
-       |                 |                             |
-   INVALID_ARGS    PRECONDITION_FAILED         success / failure / timeout
+  validate args -> preconditions -> start state -> reset -> [step -> check]* -> Result
+       |                |               |                            |
+   INVALID_ARGS   PRECONDITION_FAILED  START_STATE          success / failure / timeout
+
+Start states are part of the contract, declared as data (StartState) and
+checked by the Runner, not by the skill: they say which robot states the
+skill was trained or designed to start from. A learned skill is only
+trustworthy from those (pick after push 35%, push after place 75%), and
+an orchestrator can reach them with the recovery pose (skills/recovery.py).
 
 Skills read the world model (perception + memory) and the robot's own state.
 They never read the simulator's object state; ground truth is only for scoring
@@ -19,7 +25,11 @@ They never read the simulator's object state; ground truth is only for scoring
 from dataclasses import dataclass, field
 from enum import Enum
 
+import numpy as np
+
 DEC = 10  # physics substeps per control step (500 Hz -> 50 Hz)
+HOME_START_TOL = 0.05  # rad, every joint: "arm at home" for a start state
+OPEN_WIDTH = 0.070     # m: "fingers open" (fully open: 80 mm; a 40 mm cube fits)
 
 
 class Status(str, Enum):
@@ -53,6 +63,36 @@ class Check:
     message: str = ""
 
 
+@dataclass(frozen=True)
+class StartState:
+    """The robot states a skill may start from, checked by the Runner.
+
+    arm      "any", or "home": every joint within HOME_START_TOL of the
+             start posture
+    fingers  "any", "open" (width >= OPEN_WIDTH) or "closed" (narrower)
+    """
+    arm: str = "any"
+    fingers: str = "any"
+
+    def check(self, world):
+        """-> (ok, message), from proprioception only."""
+        env = world.env
+        if self.arm == "home":
+            q_home = env.model.key_qpos[env.home_key][: len(env.arm_qpos_adr)]
+            err = float(np.abs(env.arm_qpos - q_home).max())
+            if err > HOME_START_TOL:
+                return False, f"arm not at home (joint error up to {err:.2f} rad)"
+        width = world.gripper_width
+        if self.fingers == "open" and width < OPEN_WIDTH:
+            return False, f"fingers not open (width {1000 * width:.0f} mm)"
+        if self.fingers == "closed" and width >= OPEN_WIDTH:
+            return False, f"fingers not closed (width {1000 * width:.0f} mm)"
+        return True, ""
+
+    def __str__(self):
+        return f"arm {self.arm}, fingers {self.fingers}"
+
+
 @dataclass
 class Result:
     skill: str
@@ -80,6 +120,7 @@ class Skill:
     version = ""
     params = {}   # parameter name -> description (for validation and planners)
     effects = ""  # what the world looks like after success
+    start_state = StartState()  # robot states it may start from (Runner checks)
 
     def validate(self, world, **args):
         """-> (ok, message). Default: exactly the declared parameters."""
@@ -130,6 +171,10 @@ class Runner:
         ok, reason, msg = skill.preconditions(world, **args)
         if not ok:
             return result(Status.FAILURE, reason, msg)
+        ok, msg = skill.start_state.check(world)
+        if not ok:
+            return result(Status.FAILURE, Reason.START_STATE,
+                          f"{msg}; {skill.name} starts from: {skill.start_state}")
 
         skill.reset(world, **args)
         for t in range(self.timeout_steps):

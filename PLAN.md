@@ -195,8 +195,20 @@ Question: *what does a skill need to expose to be usable by a harness?*
 
 **Open from 2026-10-07** (stopped mid-benchmark):
 - Run the 200-position benchmarks still missing: place color s2; place
-  `--start pick` s1, s2; pick `--start after_place` s2;
-  push `--start after_place` s0–2.
+  `--start pick` s1, s2; pick `--start after_place` s2.
+- [x] Push after place: 74.8% (gt 71 / 75.5 / 78%, camera 70 / 75 / 75.5%) vs
+  99.7% from home. Diagnosed 2026-10-12: the arm's start pose, not the
+  cube's position (same scenes: 40/60 direct, 59/60 after recover). Push
+  only trained from home; place leaves the hand above the cube with the
+  wrist turned ~90° (q7 −2.40 vs −0.79). The policy's first move is the
+  same for every target, so pushes toward −x (pusher must reach the far
+  side) fail most (12/29; other directions 28/31). Closing the fingers
+  first doesn't help (40/60); turning only the wrist back helps partly
+  (50/60). Fixed (push v1.1): skills declare start states as data
+  (`StartState`), the Runner checks them, and the recovery rule reaches
+  them. Push declares arm at home + fingers open: gt 99.0 / 100 / 99.5%,
+  camera 99.0 / 99.0 / 98.0%. Training push from varied starts stays an
+  option if trips home get expensive in chains.
 - Push camera failures beyond the start blind spot (30 refusals over 3
   seeds): 5 `object_dropped` (3 after reaching the target) and 1 false
   success (s1). Likely the hidden cube's estimate behind the pusher.
@@ -318,6 +330,11 @@ needs it.
   push (gripper closed, arm low) succeeds 20–35%. The cube was visible every
   time (all failures `grasp_missed`), so "not visible → recover" alone
   wouldn't have caught it; the skill has to declare its start state.
+- **A learned skill can't tell it is outside its training starts.** Push
+  from place's end pose didn't fail fast; it hovered for 14 s, nudged the
+  cube up to 145 mm, and with the camera sometimes reported `object_dropped`
+  or false success. Declaring start states in the contract and checking them
+  in the harness turns that into an immediate, honest refusal.
 - **A recovery pose plus declared start states fixes handoffs cheaply.**
   Going home with open fingers before retrying took pick after push to 100%
   without retraining anything. It can't fix the start blind spot, though:
@@ -347,4 +364,6 @@ needs it.
 | 2026-10-10 | v4.2 | Recovery pose (`recover` = home + open fingers) and the first orchestrator rule: on a `TARGET_NOT_DETECTED` / `START_STATE` refusal, recover and retry once (`benchmark.py --recover`); pick's new start-state precondition: fingers open | Pick after push (camera) 35% (20 pos) → 100 / 100 / 100% (600/600, 3 seeds, all via recovery); standard and after_place starts unchanged (20/20, 0 recoveries) |
 | 2026-10-10 | v5.0 | Pick expert lifts once the fingers stop (5 still steps), no counter input (`--close-trigger settled`) | gt 95.0 / 100 / 98.0%; camera skill 85.0 / 94.0 / 69.5%; failures = grasp then freeze (timeouts), traced to 89% "stay" labels in identical settled-grip frames |
 | 2026-10-10 | v5.1 | Pick expert lifts on the first step the fingers reach the cube's width (`--close-trigger contact`), no counter input; pick skill default | gt 100 / 100 / 100% (600/600); camera skill 95.0 / 95.0 / 95.0%, all failures start blind-spot refusals; expert 200/200, episodes 25% shorter. Handoffs (camera): after_place 100 / 100 / 94.5% (s2: 7 timeouts, 4 drops; v3.0 s2 after_place never run, so no baseline); after_push + recover 100 / 100 / 100% |
+| 2026-10-12 | push v1.0 | Handoff: push `--start after_place`, 3 seeds, gt and camera; start-state interventions (60 scenes, gt) | gt 71.0 / 75.5 / 78.0%, camera 70.0 / 75.0 / 75.5% (vs 99.7% from home); direct 40/60, fingers closed first 40/60, wrist turned back 50/60, recover first 59/60 → the arm's start pose; −x pushes 12/29 |
+| 2026-10-12 | push v1.1 | Start states in the skill contract: `StartState(arm, fingers)` declared per skill, checked by the Runner (`START_STATE`), not by the skill; pick's open-fingers check moved there; push declares arm at home + fingers open | Push after place + recover: gt 99.0 / 100 / 99.5%, camera 99.0 / 99.0 / 98.0% (was 74.8% / 73.5%); 20-position checks: push from home and pick after place unchanged, pick after push + recover 20/20 |
 | 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |

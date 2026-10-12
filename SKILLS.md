@@ -13,6 +13,7 @@ the contract, so a scripted controller and a learned policy look the same.
 | **Identity** | name, one-line description, version |
 | **Parameters** | typed inputs, validated before starting (objects by id) |
 | **Preconditions** | checks on the world model before starting → ok, or a reason |
+| **Start states** | the robot states it was trained or designed to start from (arm pose, fingers), declared as data; the Runner checks them |
 | **Behaviour** | one action per control step (scripted or learned) |
 | **Termination** | per step: running, success, or failure with a reason; observable signals only |
 | **Effects** | the world change promised on success |
@@ -22,10 +23,10 @@ the contract, so a scripted controller and a learned policy look the same.
 **Lifecycle** (`Runner.execute`):
 
 ```
-validate args ─► check preconditions ─► reset ─► [perception → step → check]* ─► Result
-     │                   │                                  │
- INVALID_ARGS    TARGET_NOT_DETECTED /             success / failure(reason) /
-                 PRECONDITION_FAILED                timeout
+validate args ─► preconditions ─► start state ─► reset ─► [perception → step → check]* ─► Result
+     │                 │                 │                              │
+ INVALID_ARGS   TARGET_NOT_DETECTED /  START_STATE           success / failure(reason) /
+                PRECONDITION_FAILED                           timeout
 ```
 
 **Design decisions:**
@@ -44,10 +45,25 @@ validate args ─► check preconditions ─► reset ─► [perception → ste
 6. **Preconditions report ok/fail + reason**, not a fix. Choosing the fix
    (e.g. run a `look` skill) is the orchestrator's job.
 7. **Retries belong to the orchestrator**, not to skills or the executor.
+8. **Start states are part of the contract, checked by the harness.** A
+   learned skill is only trustworthy from the states it trained from, and
+   it can't tell when it is outside them: pick from closed fingers (35%)
+   and push from where place stops (75%) ran on, missed and timed out
+   instead of failing fast. So each skill declares
+   `start_state = StartState(arm=..., fingers=...)` and the Runner refuses
+   with `START_STATE` before the first step. The skill's own code never
+   checks it; preconditions stay about the task (object visible, holding).
+
+   | Skill | Start state | Why |
+   |---|---|---|
+   | pick | fingers open, any arm pose | from closed fingers 13/20 grasps missed; after place 100% |
+   | place | any (holding is a precondition) | trained from pick's end states |
+   | push | arm at home, fingers open | trained from home only; after place 40/60, pushes toward −x 12/29 |
+   | home, recover | any | scripted |
 
 **Failure codes** (shared, so an orchestrator/planner can react):
-`INVALID_ARGS`, `PRECONDITION_FAILED`, `START_STATE` (the robot isn't in a start
-state the skill handles), `TARGET_NOT_DETECTED`, `UNREACHABLE`,
+`INVALID_ARGS`, `PRECONDITION_FAILED`, `START_STATE` (the robot isn't in one of
+the skill's declared start states), `TARGET_NOT_DETECTED`, `UNREACHABLE`,
 `GRASP_MISSED`, `OBJECT_DROPPED`, `TIMEOUT`.
 
 **Two different success checks.** A skill's termination uses only what the
@@ -78,7 +94,8 @@ Grasp an object on the table and lift it 10 cm.
 |---|---|
 | Version | v5.1: BC policy from an expert with no hidden timer (lifts once the fingers reach the cube's width), driven by the world model's estimate; no steps-since-closed input |
 | Parameters | `object`: object id, e.g. `cube_red` |
-| Preconditions | object detected (`TARGET_NOT_DETECTED` otherwise); gripper empty (`PRECONDITION_FAILED`); fingers open ≥ 70 mm (`START_STATE`; from closed fingers, as push leaves them, it missed 13/20 grasps) |
+| Preconditions | object detected (`TARGET_NOT_DETECTED` otherwise); gripper empty (`PRECONDITION_FAILED`) |
+| Start state | fingers open ≥ 70 mm, any arm pose |
 | Success | gripper commanded closed, fingers stopped at 30–50 mm, estimated object centre ≥ 10 cm above rest, for 50 steps (1 s) |
 | Failures | `GRASP_MISSED`: fingers closed below 25 mm for 10 steps before any lift; `OBJECT_DROPPED`: the same after a lift; `TIMEOUT`: 700 steps |
 | Effects | `world.holding = object` |
@@ -125,7 +142,8 @@ Benchmark it with `benchmark.py --skill NAME --recover` (mode
 ## Adding a skill
 
 1. Subclass `Skill` in `scripts/skills/<name>.py`: fill in identity, `params`,
-   `preconditions`, `reset`, `step`, `check`, `effects`/`apply_effects`.
+   `start_state` (the states its demos or design start from), `preconditions`,
+   `reset`, `step`, `check`, `effects`/`apply_effects`.
 2. Termination from observable signals only; use the shared failure codes.
 3. Register it in `LIBRARY` (`scripts/skills/__init__.py`).
 4. Add its ground-truth stages/success to `benchmark.py` and evaluate it with
