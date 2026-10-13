@@ -27,6 +27,13 @@ reaching the target doesn't count).
 
 Targets come from rng (HELDOUT_SEED, position index, skill), so every
 checkpoint and every start mode sees the same targets.
+
+Distractors (benchmark.py --distractors N, multi-cube scene): N other cubes
+(blue, then green) at positions from their own rng stream (HELDOUT_SEED,
+index, "distractors"), so the red cube and the targets are exactly those of
+the run without them. Each lies in the pick range, at least DISTRACTOR_SEP
+from the red cube and from each other. They are not kept clear of targets or
+paths: clutter there is part of what is measured (distances are recorded).
 """
 
 import zlib
@@ -38,6 +45,8 @@ import scenarios as sc
 from env import TABLE_HEIGHT
 
 HELDOUT_SEED = 2026
+DISTRACTOR_IDS = ["cube_blue", "cube_green"]
+DISTRACTOR_SEP = 0.08  # m, centre to centre
 TOLERANCE = 0.015
 REST_Z = sc.REST_Z
 
@@ -63,6 +72,25 @@ def resting(env):
 
 def episode_rng(idx, skill):
     return np.random.default_rng([HELDOUT_SEED, idx, zlib.crc32(skill.encode())])
+
+
+def distractor_positions(idx, xy, n):
+    """-> {object id: xy} for n distractors around a red cube at xy."""
+    if n == 0:
+        return {}
+    rng = episode_rng(idx, "distractors")
+    placed = [np.asarray(xy, dtype=float)]
+    out = {}
+    for oid in DISTRACTOR_IDS[:n]:
+        for _ in range(1000):
+            p = sc.cube_xy(rng)
+            if all(np.linalg.norm(p - q) >= DISTRACTOR_SEP for q in placed):
+                break
+        else:
+            raise RuntimeError(f"no room for {oid} at position {idx}")
+        placed.append(p)
+        out[oid] = p
+    return out
 
 
 class Tracker:
@@ -162,11 +190,11 @@ def _after_push(env, xy, rng):
     return sc.scripted_push(env, sc.push_target(rng, xy))
 
 
-def setup(skill, start, env, world, xy, idx, pick_runner=None):
+def setup(skill, start, env, world, xy, idx, pick_runner=None, distractors=0):
     """Prepare one episode. -> (skill args, goal xy or None), or None if the
     start state could not be produced (not scored)."""
     rng = episode_rng(idx, skill)
-    env.reset(cube_xy=xy)
+    env.reset(cube_xy=xy, others=distractor_positions(idx, xy, distractors))
     world.reset()
 
     if skill == "pick":

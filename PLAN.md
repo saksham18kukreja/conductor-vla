@@ -225,12 +225,68 @@ Done when: each skill has skill success and handoff success, logged.
 
 Question: *how much does chaining lose, and why?*
 
-- [ ] **Multi-object scene** and 2–3 step tasks (e.g. lift, then place at
-      a target).
+- [x] **Multi-object scene** (2026-10-12): `multi_cube_scene.xml` (red,
+      blue, green), objects by id in env and world model, one colour
+      detector per cube (0.3 mm median), `benchmark.py --distractors N`.
+- [x] **Skills in clutter** (single-object skills, 1–2 distractor cubes ≥ 8
+      cm from the red cube, same positions and targets; 3 seeds, gt and
+      camera). See the Log row. Findings:
+      - pick unaffected (100% gt, 95% camera; never touches a distractor).
+      - place loses ~4 points per distractor (gt 100 → 96.0 → 91.7%):
+        fails when a distractor is within 40 mm of the target (53.5%),
+        knocks it within 60 mm. Its "done" is wrong 0.5–2% of the time.
+      - push still reaches its target (gt 99.5 / 99.0%) by bulldozing the
+        distractor (knocked in 81% of episodes with one within 40 mm of the
+        target) and doesn't report it. With the camera the red cube tilts
+        ~5 mm against the distractor, the estimate adds a few mm, and push
+        reports `object_dropped` (93.7 → 88.2 → 85.0%).
+      - So skills need a spatial precondition (target area free) and the
+        harness needs a verifier that checks side effects on other objects.
+- [ ] **2–3 step tasks** in the multi-cube scene (sort into zones, clear a
+      zone then place, rearrange).
 - [ ] **Scripted orchestrator**: a fixed skill sequence, a verifier after
       each step, and retry on failure.
 - [ ] **Measure** chain success vs product, and attribute every failure.
 - [ ] **Ablate** the verifier and the retries.
+
+### LIBERO-Long track (from 2026-10-12): harness vs VLA
+
+Question: *on a standard benchmark VLAs report, does specialist skills +
+harness beat an end-to-end VLA, and where does each fail?* Practical
+household tasks instead of our own cube scenes; LIBERO-Plus next (robot
+start states and camera shifts are where VLAs collapse: OpenVLA-OFT 97.1%
+→ 31.9% / 56.4%, pi0 6.0% / 13.8%). Setup and pitfalls: `libero/README.md`.
+
+The 10 tasks: 7 are pick-and-place only (0, 1, 4, 5, 6, 7, 8: into a
+basket, onto a plate or stove, into a caddy compartment, "to the right of"
+a plate); 3 also need an articulated object (2 stove knob, 3 close a drawer,
+9 close the microwave).
+
+Fairness rules (decide what a comparison claims):
+1. Same test-time inputs as the VLA: the two cameras and proprioception.
+   No simulator object state in the harness at test time; ground truth
+   only for scoring and for labelling training data.
+2. Report the training data used. LIBERO gives 50 human demos per task; any
+   scripted demos are extra supervision and reported as a separate variant.
+3. LIBERO's own success predicates (BDDL), its fixed init states, 10
+   episodes per task, 3 seeds.
+
+- [x] **Setup and headless check** (2026-10-12): LeRobot + LIBERO in their
+      own env; `libero/check_headless.py` passes on all 10 tasks with OSMesa
+      (no display, no GPU): cameras render, success predicate False at
+      reset, True after teleporting goal objects (tasks 0, 1, 7). 10.5 env
+      steps/s headless vs 47.8 with GLX.
+- [ ] **Baseline: SmolVLA** (`lerobot/smolvla_libero`) on LIBERO-Long, 3 seeds.
+      Probe 5/10 on tasks 0-1; full run stopped (2026-10-12) until the GPU
+      setup is sorted. PyTorch CUDA works (4.9 TFLOP/s matmul test); only
+      NVML/`nvidia-smi` and EGL are broken (driver/library mismatch).
+- [ ] **Task and failure analysis** of the baseline: which tasks and which
+      step of each fails (from the videos).
+- [ ] **Harness on LIBERO**: object detection from the cameras, skills
+      (pick, place in / on, then articulated), orchestrator from the
+      language instruction, verifier, recovery. Start with the 7
+      pick-and-place tasks.
+- [ ] **Compare** per task, then LIBERO-Plus perturbations.
 
 ### Phase 4: Planner as orchestrator
 
@@ -286,8 +342,12 @@ needs it.
 
 - [ ] **Orchestrator** for Phase 4: API model (e.g. Claude) or a local
       small model.
-- [ ] **Simulator** for multi-object scenes: extend the current MuJoCo
-      setup or adopt a framework (e.g. robosuite, ManiSkill, LIBERO).
+- [x] **Simulator** for multi-object scenes (2026-10-12): extend the current
+      MuJoCo setup (`multi_cube_scene.xml`: red, blue, green cubes). Revisit
+      LIBERO (robosuite, MuJoCo, Franka) for Phase 4/7: it is where VLAs
+      publish results (LIBERO-Long for multi-step, LIBERO-Plus for robot
+      start states and camera shifts), so the harness vs VLA comparison
+      could use the same tasks and scoring.
 - [ ] **Compute** for Phase 7: whether cloud GPUs are available for VLA
       fine-tuning.
 
@@ -306,6 +366,11 @@ needs it.
   the identical-looking frames said stay). Triggering on the current width
   alone fixed it with no extra input. Check a trigger by asking whether two
   identical observations can get different labels.
+- **A skill's success says nothing about the rest of the scene.** Push
+  "succeeded" while shoving the other cube out of the way, and nothing in
+  its signal shows it. Single-object skills need preconditions on free
+  space, and the harness needs a verifier that checks every object, not
+  just the target: side effects are a failure mode of their own.
 - **Diagnose by stage.** Breaking rollouts into reach / close / grasp / rise
   / lift found both failures quickly. The harness needs the same kind of
   failure attribution.
@@ -366,4 +431,6 @@ needs it.
 | 2026-10-10 | v5.1 | Pick expert lifts on the first step the fingers reach the cube's width (`--close-trigger contact`), no counter input; pick skill default | gt 100 / 100 / 100% (600/600); camera skill 95.0 / 95.0 / 95.0%, all failures start blind-spot refusals; expert 200/200, episodes 25% shorter. Handoffs (camera): after_place 100 / 100 / 94.5% (s2: 7 timeouts, 4 drops; v3.0 s2 after_place never run, so no baseline); after_push + recover 100 / 100 / 100% |
 | 2026-10-12 | push v1.0 | Handoff: push `--start after_place`, 3 seeds, gt and camera; start-state interventions (60 scenes, gt) | gt 71.0 / 75.5 / 78.0%, camera 70.0 / 75.0 / 75.5% (vs 99.7% from home); direct 40/60, fingers closed first 40/60, wrist turned back 50/60, recover first 59/60 → the arm's start pose; −x pushes 12/29 |
 | 2026-10-12 | push v1.1 | Start states in the skill contract: `StartState(arm, fingers)` declared per skill, checked by the Runner (`START_STATE`), not by the skill; pick's open-fingers check moved there; push declares arm at home + fingers open | Push after place + recover: gt 99.0 / 100 / 99.5%, camera 99.0 / 99.0 / 98.0% (was 74.8% / 73.5%); 20-position checks: push from home and pick after place unchanged, pick after push + recover 20/20 |
+| 2026-10-12 | — | Multi-cube scene (red, blue, green), per-colour detectors, `--distractors N`; single-object skills with 1–2 distractors, 3 seeds, gt and camera (36 runs) | pick: gt 100 / 100%, camera 95 / 95% (d1 / d2), no distractor touched. place: gt 96.0 / 91.7%, camera 96.2 / 92.3%, distractor knocked 12 / 23%; < 40 mm from target 53.5% success. push: gt 99.5 / 99.0% but knocked 11 / 21% (81% when < 40 mm from target), camera 88.2 / 85.0% (`object_dropped` 37 / 57: cube tilts against the distractor + estimate error) |
+| 2026-10-12 | — | Benchmark chosen: LIBERO-Long, then LIBERO-Plus. LeRobot + LIBERO installed; SmolVLA probes | `HuggingFaceVLA/smolvla_libero` 1/7 on tasks 0-1 (stale with current LeRobot); `lerobot/smolvla_libero` with CI settings 5/10; EGL broken → GLX; batch 10 runs out of memory → batch 5 |
 | 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |

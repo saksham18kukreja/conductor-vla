@@ -37,25 +37,44 @@ def mask_to_points(cam, mask, depth):
 FULL_VIEW_K = 747.0
 
 
-class ColorDetector:
-    """Baseline: threshold red pixels, back-project, fit the cube centre.
+def _red(r, g, b):
+    return (r > 90) & (r > 2 * g) & (r > 2 * b)
 
-    Assumes the cube is the only strongly red object in view. Detections with
-    less than `min_visible` of the expected cube area are rejected: with the
-    top face partly hidden the centre fit goes wrong (3-34 mm error below 60%
-    visible, 0.2 mm median above it, measured during v3.0 episodes).
+
+def _green(r, g, b):
+    return (g > 90) & (g > 2 * r) & (g > 2 * b)
+
+
+def _blue(r, g, b):
+    # the floor's checker is blue-grey (~0.2 0.3 0.4), well below these ratios
+    return (b > 90) & (b > 2 * r) & (b > 1.6 * g)
+
+
+COLOR_MASKS = {"red": _red, "green": _green, "blue": _blue}
+
+
+class ColorDetector:
+    """Baseline: threshold one colour's pixels, back-project, fit the cube centre.
+
+    Assumes the cube is the only object of its colour in view (one cube per
+    colour in the multi-cube scene). Detections with less than `min_visible`
+    of the expected cube area are rejected: with the top face partly hidden
+    the centre fit goes wrong (3-34 mm error below 60% visible, 0.2 mm median
+    above it, measured during v3.0 episodes).
     """
 
     name = "color"
 
-    def __init__(self, cam, min_pixels=30, min_visible=0.6):
+    def __init__(self, cam, min_pixels=30, min_visible=0.6, color="red"):
         self.cam = cam
         self.min_pixels = min_pixels
         self.min_visible = min_visible
+        self.color = color
+        self._mask = COLOR_MASKS[color]
 
     def mask(self, rgb):
         r, g, b = (rgb[..., i].astype(np.int32) for i in range(3))
-        return (r > 90) & (r > 2 * g) & (r > 2 * b)
+        return self._mask(r, g, b)
 
     def detect(self, rgb=None, depth=None):
         rgb = self.cam.rgb() if rgb is None else rgb

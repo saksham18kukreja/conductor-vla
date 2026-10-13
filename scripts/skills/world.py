@@ -56,8 +56,12 @@ class WorldModel:
         # skill failures (benchmark.py --skill ... --perception gt).
         self.oracle = oracle
         self.cam = Camera(env)
-        # One object for now: the red cube. More objects = more detectors here.
-        self.detectors = {"cube_red": ColorDetector(self.cam, min_visible=min_visible)}
+        # One colour detector per object in the scene (cube_red, and in the
+        # multi-cube scene cube_blue and cube_green). A parked cube is never
+        # seen, so it stays undetected.
+        self.detectors = {oid: ColorDetector(self.cam, min_visible=min_visible,
+                                             color=oid.split("_")[-1])
+                          for oid in env.objects}
         self.reset()
 
     def reset(self):
@@ -73,7 +77,10 @@ class WorldModel:
         """Run every detector now and fold accepted detections into memory."""
         for oid, det in self.detectors.items():
             if self.oracle:
-                p, info = self.env.cube_pos, {"visible": 1.0}
+                if oid in self.env.active:
+                    p, info = self.env.obj_pos(oid), {"visible": 1.0}
+                else:
+                    p, info = None, {"visible": 0.0}
             else:
                 p, info = det.detect()
             est = self.objects[oid]

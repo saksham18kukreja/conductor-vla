@@ -82,7 +82,7 @@ import torch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from env import FrankaCubeLift, TABLE_HEIGHT, CUBE_HALF  # noqa: E402
+from env import FrankaCubeLift, MULTI_MODEL_PATH, TABLE_HEIGHT, CUBE_HALF  # noqa: E402
 from collect_demos import GRIPPER_SCALE  # noqa: E402
 from train_bc import MLPPolicy, policy_obs, GRIP_THRESHOLD  # noqa: E402
 
@@ -297,14 +297,17 @@ def evaluate(env, agent, perception, positions, attempts, max_steps):
 
 
 def evaluate_skill(env, skill, skill_name, start, skill_args, positions, max_steps,
-                   min_visible, oracle, recover=False):
+                   min_visible, oracle, recover=False, distractors=0):
     """Skill mode: the skill runs through the Runner, one call per position
     (retries are the orchestrator's job). pick is scored with the same
     StageTracker as policy mode; place/push/home with skill_tasks trackers.
     Episodes whose start state could not be produced are recorded as skipped
     and left out of the metrics. recover: a refusal to start (target not
     visible, wrong start state) sends the arm to the recovery pose and the
-    skill gets one more try (skills/recovery.py)."""
+    skill gets one more try (skills/recovery.py). distractors: other cubes
+    on the table (skill_tasks.distractor_positions); each row records the
+    nearest one's distance to the red cube's start and to the goal, and how
+    far the most-moved one was knocked."""
     import skill_tasks
     from skills import LIBRARY, Runner
     from skills.recovery import execute_with_recovery
@@ -332,13 +335,23 @@ def evaluate_skill(env, skill, skill_name, start, skill_args, positions, max_ste
     rows = []
     calls = rejects = 0
     for idx, xy in enumerate(positions):
-        prepared = skill_tasks.setup(skill_name, start, env, world, xy, idx, pick_runner)
+        prepared = skill_tasks.setup(skill_name, start, env, world, xy, idx, pick_runner,
+                                     distractors)
         if prepared is None:
             rows.append(dict(idx=idx, first=-1, success=False, attempts=1, reported="",
                              reason="start_failed", goal_err=float("nan"), skipped=True))
             continue
         args, goal = prepared
         args.update(skill_args)
+        others = [o for o in env.active if o != "cube_red"]
+        d_start = {o: env.obj_pos(o) for o in others}
+        near = {}
+        if others:
+            near["near_start_mm"] = 1000 * min(np.linalg.norm(p[:2] - env.cube_pos[:2])
+                                               for p in d_start.values())
+            if goal is not None:
+                near["near_goal_mm"] = 1000 * min(np.linalg.norm(p[:2] - goal)
+                                                  for p in d_start.values())
         if skill_name == "pick":
             tracker = StageTracker()
         else:
@@ -355,9 +368,12 @@ def evaluate_skill(env, skill, skill_name, start, skill_args, positions, max_ste
             success, goal_err = tracker.done, float("nan")
         else:
             success, goal_err = tracker.finish(), tracker.goal_err()
+        if others:
+            near["knocked_mm"] = 1000 * max(np.linalg.norm(env.obj_pos(o)[:2] - d_start[o][:2])
+                                            for o in others)
         rows.append(dict(idx=idx, first=tracker.best, success=success, attempts=1,
                          reported=res.ok, reason=res.reason.value, goal_err=goal_err,
-                         skipped=False, recovered=recovered))
+                         skipped=False, recovered=recovered, **near))
     info = {"errors": errors, "calls": calls, "rejects": rejects}
     return rows, info
 
@@ -391,7 +407,7 @@ COLUMNS = (["date", "commit", "label", "checkpoint", "frame", "grip_loss", "raw_
            + ["mode", "reported_success", "signal_precision", "signal_recall",
               "failure_reasons", "episodes", "eval_set", "protocol",
               "start", "stage_rates", "goal_err_med_mm", "goal_err_p95_mm", "start_failed",
-              "recoveries"])
+              "recoveries", "distractors", "knocked_pct"])
 
 
 def summarize(rows, attempts, stages=STAGES):
@@ -410,6 +426,8 @@ def summarize(rows, attempts, stages=STAGES):
         "start_failed": skipped,
         "recoveries": sum(bool(r.get("recovered")) for r in rows),
     }
+    knocked = np.array([r["knocked_mm"] for r in rows if "knocked_mm" in r])
+    m["knocked_pct"] = 100 * float(np.mean(knocked > 10)) if len(knocked) else float("nan")
     m["stage_rates"] = {s: 100 * np.mean(first >= i) for i, s in enumerate(stages)}
     if stages is STAGES:
         for s in STAGES:
@@ -451,9 +469,12 @@ def write_episodes(run_id, rows, stages=STAGES):
     path = os.path.join(EPISODES, f"{run_id}.tsv")
     goal = any("goal_err" in r and not np.isnan(r["goal_err"]) for r in rows)
     rec = any("recovered" in r for r in rows)
+    clutter = [k for k in ("near_start_mm", "near_goal_mm", "knocked_mm")
+               if any(k in r for r in rows)]
     with open(path, "w") as f:
         f.write("idx\tfirst_stage\tsuccess\tattempts\treported\treason"
-                + ("\tgoal_err_mm" if goal else "") + ("\trecovered" if rec else "") + "\n")
+                + ("\tgoal_err_mm" if goal else "") + ("\trecovered" if rec else "")
+                + "".join(f"\t{k}" for k in clutter) + "\n")
         for r in rows:
             stage = stages[r["first"]] if r["first"] >= 0 else "none"
             f.write(f"{r['idx']}\t{stage}\t{int(r['success'])}\t{r['attempts']}\t"
@@ -462,6 +483,8 @@ def write_episodes(run_id, rows, stages=STAGES):
                 f.write(f"\t{1000 * r['goal_err']:.1f}")
             if rec:
                 f.write(f"\t{int(bool(r.get('recovered')))}")
+            for k in clutter:
+                f.write(f"\t{r[k]:.1f}" if k in r else "\t")
             f.write("\n")
     return os.path.basename(path)
 
@@ -621,6 +644,9 @@ def main():
     ap.add_argument("--recover", action="store_true",
                     help="skill mode: on a refusal to start (target not visible, wrong "
                          "start state) go to the recovery pose and try once more")
+    ap.add_argument("--distractors", type=int, default=0, choices=[0, 1, 2],
+                    help="skill mode: other cubes on the table (multi-cube scene), "
+                         "placed away from the red cube; targets are unchanged")
     ap.add_argument("--no-log", action="store_true", help="don't append to results")
     ap.add_argument("--wandb", action="store_true",
                     help="also log each evaluation to W&B (tracking.py)")
@@ -632,10 +658,12 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     positions = heldout_positions(args.positions)
-    env = FrankaCubeLift()
+    env = FrankaCubeLift(MULTI_MODEL_PATH) if args.distractors else FrankaCubeLift()
     attempts = 1 if args.skill else args.attempts
     if args.recover and not args.skill:
         ap.error("--recover needs --skill")
+    if args.distractors and not args.skill:
+        ap.error("--distractors needs --skill")
     mode = f"skill:{args.skill}" if args.skill else "policy"
     if args.recover:
         mode += "+recover"
@@ -661,7 +689,7 @@ def main():
             skill_args = dict(a.split("=", 1) for a in args.skill_arg)
             rows, info = evaluate_skill(env, skill, args.skill, start, skill_args, positions,
                                         args.max_steps, args.min_visible, oracle=ptag == "gt",
-                                        recover=args.recover)
+                                        recover=args.recover, distractors=args.distractors)
             agent = skill.agent
             errs_raw, calls, rejects = info["errors"], info["calls"], info["rejects"]
         else:
@@ -691,6 +719,9 @@ def main():
               + (f"   start state failed (not scored): {m['start_failed']}"
                  if m["start_failed"] else "")
               + (f"   recovered before starting: {m['recoveries']}" if args.recover else ""))
+        if args.distractors:
+            print(f"   distractors {args.distractors}: knocked > 10 mm in {m['knocked_pct']:.1f}% "
+                  "of episodes")
         if not np.isnan(m["goal_err_med_mm"]):
             print(f"   final distance to target: median {m['goal_err_med_mm']:.1f} mm  "
                   f"p95 {m['goal_err_p95_mm']:.1f} mm")
@@ -701,7 +732,8 @@ def main():
             print(f"   skill-reported success {m['reported_success']:.1f}%   success signal: "
                   f"precision {m['signal_precision']:.1f}%  recall {m['signal_recall']:.1f}%   "
                   f"failure reasons {m['failure_reasons']}")
-        is_baseline = ptag == "gt" and not args.raw_grip and not args.recover and (
+        is_baseline = (ptag == "gt" and not args.raw_grip and not args.recover
+                       and not args.distractors) and (
             mode == "policy" or (args.skill and args.skill != "pick"))
         report = regression_report(m, rows, name, is_baseline, mode, start, stages)
         if args.wandb:
@@ -715,7 +747,9 @@ def main():
             standard = not args.skill or start == skill_tasks.STARTS[args.skill][0]
             run_id = "__".join(x for x in [args.label or "nolabel", stem,
                                            mode.replace(":", "-"), ptag,
-                                           "" if standard else start] if x)
+                                           "" if standard else start,
+                                           f"d{args.distractors}" if args.distractors else ""]
+                              if x)
             if ptag == "noisy":
                 run_id += f"_n{args.pos_noise:g}_b{args.pos_bias:g}"
             episodes = write_episodes(run_id, rows, stages)
@@ -737,6 +771,8 @@ def main():
                 else f"{m['goal_err_p95_mm']:.1f}",
                 "start_failed": m["start_failed"],
                 "recoveries": m["recoveries"] if args.recover else "",
+                "distractors": args.distractors or "",
+                "knocked_pct": f"{m['knocked_pct']:.1f}" if args.distractors else "",
             }
             for k in ["stage_score", "success_1", "success_k", "lifted_1"] + \
                      [f"rate_{s}" for s in STAGES]:

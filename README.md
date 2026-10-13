@@ -69,6 +69,33 @@ python benchmark.py ../models/bc_push3000_s0.pt --label push-v1.1 --skill push \
     --start after_place --recover
 ```
 
+## Skills in clutter
+
+The multi-cube scene (`multi_cube_scene.xml`: red, blue, green cubes, one
+colour detector each) runs the single-object skills with 1–2 other cubes
+on the table (`benchmark.py --distractors N`), at least 8 cm from the red
+cube, with the same red-cube positions and targets as without them. 200
+held-out positions, mean over 3 seeds:
+
+| Skill | Distractors 0 / 1 / 2, true positions | Camera | Distractor knocked > 10 mm |
+|---|---|---|---|
+| pick | 100 / 100 / 100% | 95 / 95 / 95% | never |
+| place | 100 / 96.0 / 91.7% | 100 / 96.2 / 92.3% | 12 / 23% of episodes |
+| push | 99.7 / 99.5 / 99.0% | 93.7 / 88.2 / 85.0% | 11 / 21% of episodes |
+
+Place fails when a distractor sits on its target (53.5% success within 40
+mm, 100% beyond 60 mm). Push still reaches its target by shoving the other
+cube aside (81% of episodes with one within 40 mm of the target), and
+nothing in its signal shows it; with the camera, the red cube tilts against
+the other one and push reports `object_dropped`. Skills need a free-space
+precondition, and the harness needs a verifier that checks every object.
+
+## LIBERO-Long
+
+The harness is next compared against VLAs on LIBERO-Long (10 multi-step
+household tasks), then LIBERO-Plus. Setup, a headless pipeline check and
+the baseline plan: [libero/README.md](libero/README.md).
+
 ## Versions
 
 3 training seeds per version (3000 demos, 100 epochs). The last column is

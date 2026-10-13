@@ -3,6 +3,12 @@
 Thin wrapper around the menagerie Panda model plus a table and a free-floating
 cube. Exposes just what a controller or a policy needs: cube pose, TCP pose,
 arm joint state, and a step() that takes position targets.
+
+Objects: every free body named cube* is an object, with id cube_<color>
+(the body "cube" is cube_red). The default scene has only the red cube;
+MULTI_MODEL_PATH adds blue and green ones. `cube_*` properties always mean
+the red cube, so single-object code is unchanged. reset(others=...) places
+the other cubes; any not given are parked off the table, out of view.
 """
 
 import os
@@ -13,6 +19,9 @@ import numpy as np
 _HERE = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.normpath(
     os.path.join(_HERE, "..", "models", "franka_emika_panda", "cube_lift_scene.xml")
+)
+MULTI_MODEL_PATH = os.path.normpath(
+    os.path.join(_HERE, "..", "models", "franka_emika_panda", "multi_cube_scene.xml")
 )
 
 # Offset from the `hand` body frame to the grasp center between the fingertips,
@@ -26,6 +35,8 @@ GRIPPER_CLOSE = 0.0
 ARM_JOINTS = tuple(f"joint{i}" for i in range(1, 8))
 TABLE_HEIGHT = 0.40
 CUBE_HALF = 0.02
+PARK_XY = np.array([3.0, 1.0])  # unused cubes: on the floor, behind every camera
+PARK_STEP = np.array([0.0, 0.2])
 
 
 class FrankaCubeLift:
@@ -54,6 +65,17 @@ class FrankaCubeLift:
         self.cube_qpos_adr = self.model.jnt_qposadr[cube_joint]
         self.cube_dof_adr = self.model.jnt_dofadr[cube_joint]
 
+        # object id -> (body id, qpos address, dof address)
+        self.objects = {}
+        for b in range(self.model.nbody):
+            name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, b) or ""
+            jnt = self.model.body_jntadr[b]
+            if not name.startswith("cube") or jnt < 0 or self.model.jnt_type[jnt] != 0:
+                continue
+            oid = "cube_red" if name == "cube" else name
+            self.objects[oid] = (b, self.model.jnt_qposadr[jnt], self.model.jnt_dofadr[jnt])
+        self.active = ["cube_red"]  # objects on the table this episode
+
         # Arm joints are addressed by name so we never depend on cube/finger ordering.
         jids = [mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, n) for n in ARM_JOINTS]
         self.arm_qpos_adr = np.array([self.model.jnt_qposadr[j] for j in jids])
@@ -66,7 +88,7 @@ class FrankaCubeLift:
         ]
         self.finger_qpos_adr = np.array([self.model.jnt_qposadr[j] for j in fjids])
 
-        # Robot DOFs only: compensating the cube's free joint would levitate it.
+        # Robot DOFs only: compensating a cube's free joint would levitate it.
         self.robot_dof_adr = np.concatenate(
             [self.arm_dof_adr, [self.model.jnt_dofadr[j] for j in fjids]]
         )
@@ -116,6 +138,9 @@ class FrankaCubeLift:
     def cube_quat(self):
         return self.data.xquat[self.cube_id].copy()
 
+    def obj_pos(self, oid):
+        return self.data.xpos[self.objects[oid][0]].copy()
+
     @property
     def tcp_pos(self):
         """Grasp center in world coordinates."""
@@ -133,9 +158,27 @@ class FrankaCubeLift:
 
     # ----------------------------------------------------------- simulation
 
-    def reset(self, cube_xy=None, randomize=False):
-        """Reset to the home pose; optionally place or randomize the cube."""
+    def reset(self, cube_xy=None, randomize=False, others=None):
+        """Reset to the home pose; optionally place or randomize the cube.
+
+        others: {object id: xy} for the other cubes (multi-cube scene); the
+        rest are parked off the table.
+        """
         mujoco.mj_resetDataKeyframe(self.model, self.data, self.home_key)
+        others = dict(others or {})
+        unknown = set(others) - set(self.objects)
+        if unknown:
+            raise ValueError(f"unknown objects {sorted(unknown)}; scene has {sorted(self.objects)}")
+        self.active = ["cube_red"] + sorted(others)
+        for k, oid in enumerate(sorted(o for o in self.objects if o != "cube_red")):
+            xy = others.get(oid)
+            z = TABLE_HEIGHT + CUBE_HALF
+            if xy is None:
+                xy, z = PARK_XY + k * PARK_STEP, CUBE_HALF
+            _, adr, dadr = self.objects[oid]
+            self.data.qpos[adr : adr + 3] = [xy[0], xy[1], z]
+            self.data.qpos[adr + 3 : adr + 7] = [1.0, 0.0, 0.0, 0.0]
+            self.data.qvel[dadr : dadr + 6] = 0.0
 
         if cube_xy is None:
             cube_xy = np.array([0.55, 0.0])
