@@ -281,8 +281,15 @@ Fairness rules (decide what a comparison claims):
       48%). Two-object tasks 23–57%, single-object tasks 77–87%. Per-task
       table in `libero/README.md`. Below the paper's 77% (different
       checkpoint/protocol); 54.0% is our comparison point.
-- [ ] **Task and failure analysis** of the baseline: which tasks and which
-      step of each fails (from the videos).
+- [x] **Task and failure analysis** (2026-10-14): every goal predicate logged
+      per step (`libero/eval_with_subgoals.py`, identical per-episode outcomes
+      to the baseline). 54.0% success, 24.3% partial (some predicates done,
+      then stalled), 20.3% none, 1.3% undone. Stove, drawer and moka-pot
+      tasks: the first step succeeds 100% and the next one fails. Basket
+      tasks with the soup can (0, 7): mostly fail at the first object (16 and
+      19 of 30 do nothing). So the harness can gain from sequencing,
+      per-step verification and retrying the missing step, plus a reliable
+      pick for the objects SmolVLA can't grasp.
 - [ ] **Harness on LIBERO**: object detection from the cameras, skills
       (pick, place in / on, then articulated), orchestrator from the
       language instruction, verifier, recovery. Start with the 7
@@ -435,4 +442,5 @@ needs it.
 | 2026-10-12 | — | Multi-cube scene (red, blue, green), per-colour detectors, `--distractors N`; single-object skills with 1–2 distractors, 3 seeds, gt and camera (36 runs) | pick: gt 100 / 100%, camera 95 / 95% (d1 / d2), no distractor touched. place: gt 96.0 / 91.7%, camera 96.2 / 92.3%, distractor knocked 12 / 23%; < 40 mm from target 53.5% success. push: gt 99.5 / 99.0% but knocked 11 / 21% (81% when < 40 mm from target), camera 88.2 / 85.0% (`object_dropped` 37 / 57: cube tilts against the distractor + estimate error) |
 | 2026-10-12 | — | Benchmark chosen: LIBERO-Long, then LIBERO-Plus. LeRobot + LIBERO installed; SmolVLA probes | `HuggingFaceVLA/smolvla_libero` 1/7 on tasks 0-1 (stale with current LeRobot); `lerobot/smolvla_libero` with CI settings 5/10; EGL broken → GLX; batch 10 runs out of memory → batch 5 |
 | 2026-10-14 | — | SmolVLA baseline on LIBERO-Long (`lerobot/smolvla_libero`, 10 episodes per task, seeds 1000 / 2000 / 3000, EGL) | 53 / 61 / 48%, mean 54.0%; tasks moving two objects 23.3–56.7%, single-object tasks 76.7–86.7% |
+| 2026-10-14 | — | SmolVLA LIBERO-Long failure breakdown: per-predicate logging rerun (same seeds; identical per-episode outcomes) | success 54.0%, partial 24.3%, none 20.3%, undone 1.3%; stove on 100% / pot on stove 77% (task 2); bowl in drawer 100% / drawer closed 77% (task 3); tasks 0 and 7 do nothing in 16 and 19 of 30 |
 | 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |

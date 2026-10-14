@@ -19,6 +19,15 @@ cp franka_cube_lift/libero/run_libero_eval.sh lerobot/
 cd lerobot && LIBERO_CONFIG_PATH=$PWD/.libero sh -c 'echo n | .env/bin/python -c "import libero.libero"'
 ```
 
+Per-subgoal logging (same arguments as `lerobot-eval`):
+
+```bash
+cd ~/experiments/lerobot
+MUJOCO_GL=egl LIBERO_CONFIG_PATH=$PWD/.libero SUBGOAL_LOG=subgoals.jsonl \
+    .env/bin/python ../franka_cube_lift/libero/eval_with_subgoals.py <lerobot-eval args>
+python ../franka_cube_lift/libero/analyze_subgoals.py subgoals.jsonl
+```
+
 ## Headless check (no display, no policy)
 
 `check_headless.py` runs LeRobot's `LiberoEnv` (the wrapper `lerobot-eval`
@@ -86,3 +95,42 @@ task). Either way, 54.0% is the number our harness is compared against.
 The tasks that move two objects (0, 1, 4, 6, 7, 8) are the weakest
 (23–57%); the single-object tasks, including the articulated ones (2, 3,
 5, 9), reach 77–87%.
+
+### Where SmolVLA fails: per-subgoal breakdown
+
+A LIBERO task succeeds when all predicates of its goal hold at once.
+`eval_with_subgoals.py` (lerobot-eval with each predicate logged per step)
+reran the baseline with identical per-episode outcomes on all 3 seeds;
+`analyze_subgoals.py` sorts the 300 episodes:
+
+| Outcome | Share |
+|---|---|
+| success (all predicates) | 54.0% |
+| partial (some predicates held at the end) | 24.3% |
+| none (no predicate ever held) | 20.3% |
+| undone (a predicate held, then was lost) | 1.3% |
+
+| Task | Success | Partial (what got done) | None | Where it fails |
+|---|---|---|---|---|
+| 0 soup + sauce → basket | 8/30 | 6 (soup 5, sauce 1) | 16 | mostly the first object |
+| 1 cream cheese + butter → basket | 17/30 | 8 (butter 6, cheese 2) | 5 | second object |
+| 2 stove on + moka pot on it | 23/30 | 7 (stove on) | 0 | placing the pot (stove on 100%) |
+| 3 bowl in drawer + close it | 23/30 | 7 (bowl in) | 0 | closing the drawer (bowl in 100%) |
+| 4 two mugs → two plates | 7/30 | 12 (one mug each way, 6/6) | 9 | second mug, often the first |
+| 5 book → caddy | 26/30 | — | 4 | single step |
+| 6 mug → plate, pudding right of it | 10/30 | 14 (mug 11, pudding 3) | 5 | the pudding |
+| 7 soup + cream cheese → basket | 8/30 | 3 (soup) | 19 | mostly the first object |
+| 8 both moka pots → stove (+ on) | 15/30 | 15 (stove on always; one pot 11) | 0 | the second pot |
+| 9 mug in microwave + close it | 25/30 | 1 | 3 | — |
+
+What it says for the harness:
+
+- **A quarter of all episodes finish part of the task and then stall.** In
+  the stove, drawer and moka-pot tasks the first step succeeds every time
+  and the failure is the next one. Sequencing, a verifier that sees which
+  step is missing, and a retry of just that step target exactly this.
+- **SmolVLA almost never undoes progress** (1.3%), so a retry of the missing
+  step starts from a sensible state.
+- **The basket tasks with the soup can (0, 7) mostly fail at the first
+  object** (16 and 19 of 30 do nothing). That is a skill failure (grasping
+  that object), not a sequencing one; the harness needs a reliable pick.
