@@ -276,10 +276,11 @@ Fairness rules (decide what a comparison claims):
       (no display, no GPU): cameras render, success predicate False at
       reset, True after teleporting goal objects (tasks 0, 1, 7). 10.5 env
       steps/s headless vs 47.8 with GLX.
-- [ ] **Baseline: SmolVLA** (`lerobot/smolvla_libero`) on LIBERO-Long, 3 seeds.
-      Probe 5/10 on tasks 0-1; full run stopped (2026-10-12) until the GPU
-      setup is sorted. PyTorch CUDA works (4.9 TFLOP/s matmul test); only
-      NVML/`nvidia-smi` and EGL are broken (driver/library mismatch).
+- [x] **Baseline: SmolVLA** (`lerobot/smolvla_libero`) on LIBERO-Long, 3 seeds
+      (2026-10-14, after a reboot fixed EGL and NVML): **54.0%** (53 / 61 /
+      48%). Two-object tasks 23–57%, single-object tasks 77–87%. Per-task
+      table in `libero/README.md`. Below the paper's 77% (different
+      checkpoint/protocol); 54.0% is our comparison point.
 - [ ] **Task and failure analysis** of the baseline: which tasks and which
       step of each fails (from the videos).
 - [ ] **Harness on LIBERO**: object detection from the cameras, skills
@@ -433,4 +434,5 @@ needs it.
 | 2026-10-12 | push v1.1 | Start states in the skill contract: `StartState(arm, fingers)` declared per skill, checked by the Runner (`START_STATE`), not by the skill; pick's open-fingers check moved there; push declares arm at home + fingers open | Push after place + recover: gt 99.0 / 100 / 99.5%, camera 99.0 / 99.0 / 98.0% (was 74.8% / 73.5%); 20-position checks: push from home and pick after place unchanged, pick after push + recover 20/20 |
 | 2026-10-12 | — | Multi-cube scene (red, blue, green), per-colour detectors, `--distractors N`; single-object skills with 1–2 distractors, 3 seeds, gt and camera (36 runs) | pick: gt 100 / 100%, camera 95 / 95% (d1 / d2), no distractor touched. place: gt 96.0 / 91.7%, camera 96.2 / 92.3%, distractor knocked 12 / 23%; < 40 mm from target 53.5% success. push: gt 99.5 / 99.0% but knocked 11 / 21% (81% when < 40 mm from target), camera 88.2 / 85.0% (`object_dropped` 37 / 57: cube tilts against the distractor + estimate error) |
 | 2026-10-12 | — | Benchmark chosen: LIBERO-Long, then LIBERO-Plus. LeRobot + LIBERO installed; SmolVLA probes | `HuggingFaceVLA/smolvla_libero` 1/7 on tasks 0-1 (stale with current LeRobot); `lerobot/smolvla_libero` with CI settings 5/10; EGL broken → GLX; batch 10 runs out of memory → batch 5 |
+| 2026-10-14 | — | SmolVLA baseline on LIBERO-Long (`lerobot/smolvla_libero`, 10 episodes per task, seeds 1000 / 2000 / 3000, EGL) | 53 / 61 / 48%, mean 54.0%; tasks moving two objects 23.3–56.7%, single-object tasks 76.7–86.7% |
 | 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |
