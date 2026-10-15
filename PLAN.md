@@ -335,12 +335,26 @@ Fairness rules (decide what a comparison claims):
         7): 69.0% vs 43.9% for smolvla_libero on the same tasks (step 2
         measured from the initial scene, not after step 1). Results in
         `results/libero/kesvill_l90/`.
-  - [ ] **M2** + sequencing (hand-written steps, LIBERO predicates as verifier),
-        with the LIBERO-90 checkpoint on the 6 fully covered tasks; later our
-        own SmolVLA fine-tuned on LIBERO-90 + LIBERO-Long to cover tasks 1, 5,
-        8 and 9
+  - [x] **M2** + sequencing (2026-10-15): LIBERO-90 checkpoint, hand-written
+        steps, a step is done when its predicate holds for 5 control steps,
+        batch size 1; the 6 fully covered tasks (0, 2, 3, 4, 6, 7), 3 seeds.
+        **0% (0/180)**: step 1 done 57–100%, step 2 never, and step 2 undoes
+        step 1 in 23% (stove switched back off 19/30, first mug knocked off
+        17/30). The same steps from the initial pose: 60–100% (M1b). The
+        handoff bottleneck, at full strength.
   - [ ] **M3** + retry a failed step
-  - [ ] **M4** + recovery pose before each step
+  - [x] **M4** + recovery pose between steps (2026-10-15, done before M3
+        because M2 showed the handoff was the failure): `harness/recover.py`
+        drives the hand back to its start pose, gripper open, through
+        LIBERO's own controller (28–39 control steps, inside the 520 budget).
+        **56.1%** (56.7 / 56.7 / 55.0) vs 43.9% for smolvla_libero end to end
+        on the same 6 tasks, and 0% without recovery. Per task: 23 / 77 / 87 /
+        50 / 60 / 40% vs 27 / 77 / 77 / 23 / 33 / 27%. Below the 69% estimate
+        from steps run alone: in the failures the arm reaches the next
+        object but misses it, likely the changed scene (e.g. the stove now
+        on, which the step's demos never showed). Upper bound: privileged
+        predicates and hand-written plans; different training data from the
+        end-to-end baseline (LIBERO-90 vs the 4 suites incl. LIBERO-Long).
   - [ ] **M5** visual verifier instead of predicates (first fair comparison)
   - [ ] **M6** LLM orchestrator instead of hand-written steps
   - [ ] **M7** LIBERO-Plus
@@ -458,6 +472,12 @@ needs it.
   cube up to 145 mm, and with the camera sometimes reported `object_dropped`
   or false success. Declaring start states in the contract and checking them
   in the harness turns that into an immediate, honest refusal.
+- **The handoff lesson transfers to VLAs.** A LIBERO-90 SmolVLA does each
+  step 60–100% from the robot's start pose and 0% right after the previous
+  step (M2); returning the hand to the start pose between steps takes the
+  chain from 0% to 56.1%, above the end-to-end VLA (43.9%). Same fix as the
+  cube harness: skills have start states, the harness brings the robot to
+  them.
 - **A recovery pose plus declared start states fixes handoffs cheaply.**
   Going home with open fingers before retrying took pick after push to 100%
   without retraining anything. It can't fix the start blind spot, though:
@@ -496,4 +516,6 @@ needs it.
 | 2026-10-14 | harness M0 | Harness rollout loop (`harness/`) plugged into lerobot-eval, all components off; tasks 0-1, seed 1000 | identical to the baseline episode for episode: 4/10 and 7/10, same success steps and predicate times |
 | 2026-10-15 | harness M1 | Each plan step alone from the task's start, 520 steps, trained and split wording, 3 seeds (`run_m1.sh`) | commanded predicate 13.7% (trained) / 3.0% (split) vs 64.4% / 57.4% with the full instruction; other step done instead up to 53% (task 1) and 83% (task 8) |
 | 2026-10-15 | harness M1b | `Kesvill/smolvla_libero_90` (SmolVLA trained on LIBERO-90) on LIBERO-Long: full instruction, and each step alone in LIBERO-90 wording; 3 seeds | full instruction 0% (30% partial); commanded step 68.7% (82.4% on 15 same-scene LIBERO-90 steps, 0% on 3 without), other-object 4.1%; product of step rates on the 6 covered tasks 69.0% vs 43.9% for smolvla_libero |
+| 2026-10-15 | harness M2 | Steps in sequence, no recovery; LIBERO-90 SmolVLA, 6 covered tasks, batch 1, 3 seeds | 0/180; step 1 done 57–100%, step 2 never; step 1 undone in 23% |
+| 2026-10-15 | harness M4 | + recovery pose between steps (hand back to start pose, gripper open, 28–39 steps) | 56.1% (56.7 / 56.7 / 55.0) vs 43.9% smolvla_libero end to end on the same tasks; best on tasks 3 (87%), 6 (60%), 4 (50%) |
 | 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |

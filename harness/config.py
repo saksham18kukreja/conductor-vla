@@ -22,6 +22,13 @@ class HarnessConfig:
     # M1: run only this step of the plan (0-based), alone from the task's
     # initial state, for the whole step budget
     only_step: int = None
+    # M2: a step counts as done once its check has held for this many
+    # consecutive control steps (20 Hz), then the next step's instruction is
+    # given and the VLA's action queue cleared
+    confirm_steps: int = 5
+    # M4: before each new step, drive the hand back to its pose at the start
+    # of the episode with the gripper open (harness/recover.py)
+    recover: bool = False
 
     @classmethod
     def from_env(cls):
@@ -36,4 +43,4 @@ class HarnessConfig:
             return "harness off (M0: full instruction)"
         if self.only_step is not None:
             return f"M1: step {self.only_step} alone, {self.wording} wording"
-        return f"steps, {self.wording} wording"
+        return f"{'M4' if self.recover else 'M2'}: steps in sequence{' + recovery pose' if self.recover else ''}, {self.wording} wording"

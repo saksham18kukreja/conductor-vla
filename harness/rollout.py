@@ -7,7 +7,20 @@ who decides what the VLA is told and when. Each env runs an Episode: a plan
 
 With every switch in HarnessConfig off (M0) the plan is one step, the task's
 own instruction, and the loop must reproduce lerobot-eval episode for episode.
+
+M2 (sequencing): after every control step the verifier evaluates the current
+step's check (a LIBERO goal predicate, read from the simulator: privileged,
+so runs with it are upper bounds); once it has held for confirm_steps steps,
+the episode moves to the next step and the VLA's action queue is cleared. The
+VLA keeps one queue for the whole batch, so sequencing needs batch size 1.
+After the last step it keeps the last instruction until the episode ends.
+M4 (recover): between steps the hand is first driven back to its start pose
+(harness/recover.py); those control steps count against the budget.
+Step switches are written to $HARNESS_LOG (JSON lines, one per episode).
 """
+
+import json
+import os
 
 from dataclasses import dataclass, field
 
@@ -21,6 +34,7 @@ from lerobot.utils.constants import ACTION
 
 from harness.config import HarnessConfig
 from harness.plans import PLANS
+from harness.recover import Recovery, start_pose
 from harness.vla_skill import VLASkill
 
 
@@ -33,12 +47,26 @@ class Step:
 @dataclass
 class Episode:
     plan: list
+    task_id: int = None
     current: int = 0
-    log: list = field(default_factory=list)
+    held: int = 0  # consecutive control steps the current step's check has held
+    start: tuple = None  # hand pose at the start of the episode (recovery target)
+    recovering: object = None  # active Recovery, if any
+    log: list = field(default_factory=list)  # (control step, event)
 
     @property
     def instruction(self):
         return self.plan[self.current].instruction
+
+    @property
+    def step(self):
+        return self.plan[self.current]
+
+
+def check_holds(env, i, check):
+    """Evaluate a LIBERO goal predicate on env i's simulator state (privileged)."""
+    inner = env.envs[i]._env.env
+    return bool(inner._eval_predicate(list(check)))
 
 
 def task_descriptions(env):
@@ -59,8 +87,6 @@ def make_plan(task, task_id, cfg):
         if cfg.only_step >= len(steps):
             raise ValueError(f"task {task_id} has {len(steps)} steps; no step {cfg.only_step}")
         steps = [steps[cfg.only_step]]
-    if len(steps) > 1:
-        raise NotImplementedError("sequencing several steps comes in M2")
     return steps
 
 
@@ -92,7 +118,12 @@ def harness_rollout(env, policy, env_preprocessor, env_postprocessor, preprocess
     if render_callback is not None:
         render_callback(env)
     task_ids = list(env.get_attr("task_id"))
-    episodes = [Episode(make_plan(t, tid, cfg)) for t, tid in zip(task_descriptions(env), task_ids)]
+    episodes = [Episode(make_plan(t, tid, cfg), tid) for t, tid in zip(task_descriptions(env), task_ids)]
+    sequencing = any(len(e.plan) > 1 for e in episodes)
+    if sequencing and n > 1:
+        raise ValueError("sequencing steps needs --eval.batch_size=1 (the VLA's action queue is shared)")
+    for i, e in enumerate(episodes):
+        e.start = start_pose(env, i)
     if cfg.steps:
         print(f"[harness] {cfg.describe()}: " + " | ".join(
             sorted({f"task {tid}: {e.instruction!r}" for tid, e in zip(task_ids, episodes)})), flush=True)
@@ -105,11 +136,33 @@ def harness_rollout(env, policy, env_preprocessor, env_postprocessor, preprocess
                      disable=False, leave=False)
     check_env_attributes_and_types(env)
     while not np.all(done) and step < max_steps:
-        action = skill.act(observation, [e.instruction for e in episodes])
+        if any(e.recovering for e in episodes):  # batch size 1 when sequencing
+            action = np.stack([e.recovering.act(env, i) for i, e in enumerate(episodes)])
+        else:
+            action = skill.act(observation, [e.instruction for e in episodes])
         observation, reward, terminated, truncated, info = env.step(action)
         if render_callback is not None:
             render_callback(env)
         successes = successes_from_info(info, n)
+
+        if sequencing:
+            for i, e in enumerate(episodes):
+                if e.recovering is not None:
+                    if e.recovering.done(env, i):
+                        e.log.append((step + 1, f"recovered in {e.recovering.steps} steps"))
+                        e.recovering = None
+                        skill.reset()
+                    continue
+                if done[i] or e.current >= len(e.plan) - 1 or e.step.check is None:
+                    continue
+                e.held = e.held + 1 if check_holds(env, i, e.step.check) else 0
+                if e.held >= cfg.confirm_steps:
+                    e.log.append((step + 1, f"step {e.current} done"))
+                    e.current += 1
+                    e.held = 0
+                    skill.reset()  # batch size 1: only this episode's queue
+                    if cfg.recover:
+                        e.recovering = Recovery(*e.start)
 
         done = terminated | truncated | done
         if step + 1 == max_steps:
@@ -123,6 +176,15 @@ def harness_rollout(env, policy, env_preprocessor, env_postprocessor, preprocess
         progbar.set_postfix({"running_success_rate": f"{rate * 100:.1f}%"})
         progbar.update()
     progbar.close()
+
+    log_path = os.environ.get("HARNESS_LOG")
+    if log_path and sequencing:
+        with open(log_path, "a") as f:
+            for i, e in enumerate(episodes):
+                f.write(json.dumps({"task_id": e.task_id, "seed": seeds[i] if seeds else None,
+                                    "plan": [s.instruction for s in e.plan], "reached_step": e.current,
+                                    "events": e.log, "steps": step,
+                                    "success": bool(torch.stack(all_successes, dim=1)[i].any())}) + "\n")
 
     return {
         ACTION: torch.stack(all_actions, dim=1),
