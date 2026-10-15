@@ -290,10 +290,25 @@ Fairness rules (decide what a comparison claims):
       19 of 30 do nothing). So the harness can gain from sequencing,
       per-step verification and retrying the missing step, plus a reliable
       pick for the objects SmolVLA can't grasp.
-- [ ] **Harness on LIBERO**: object detection from the cameras, skills
-      (pick, place in / on, then articulated), orchestrator from the
-      language instruction, verifier, recovery. Start with the 7
-      pick-and-place tasks.
+- [ ] **Harness on LIBERO, SmolVLA as the skill** (decided 2026-10-14): the
+      harness keeps its job (plan steps, verify each, retry, recover) and
+      SmolVLA executes each step, called with a step instruction. A VLA
+      never signals "done", so termination moves to the verifier. Code:
+      `harness/` (`vla_skill.py`, `rollout.py` = a drop-in for lerobot-eval's
+      rollout, `config.py` = one switch per component, `eval_harness.py`).
+      Fairness: the whole task keeps the 520-step budget; rows that use
+      LIBERO's predicates or hand-written plans are labelled upper bounds.
+      Milestones, each switching on one component:
+  - [x] **M0** loop only, harness off (full instruction): reproduces
+        lerobot-eval episode for episode (tasks 0-1, seed 1000: 4/10 and
+        7/10, identical success steps and predicate times).
+  - [ ] **M1** step instructions, each alone: does SmolVLA follow them?
+  - [ ] **M2** + sequencing (hand-written steps, LIBERO predicates as verifier)
+  - [ ] **M3** + retry a failed step
+  - [ ] **M4** + recovery pose before each step
+  - [ ] **M5** visual verifier instead of predicates (first fair comparison)
+  - [ ] **M6** LLM orchestrator instead of hand-written steps
+  - [ ] **M7** LIBERO-Plus
 - [ ] **Compare** per task, then LIBERO-Plus perturbations.
 
 ### Phase 4: Planner as orchestrator
@@ -443,4 +458,5 @@ needs it.
 | 2026-10-12 | — | Benchmark chosen: LIBERO-Long, then LIBERO-Plus. LeRobot + LIBERO installed; SmolVLA probes | `HuggingFaceVLA/smolvla_libero` 1/7 on tasks 0-1 (stale with current LeRobot); `lerobot/smolvla_libero` with CI settings 5/10; EGL broken → GLX; batch 10 runs out of memory → batch 5 |
 | 2026-10-14 | — | SmolVLA baseline on LIBERO-Long (`lerobot/smolvla_libero`, 10 episodes per task, seeds 1000 / 2000 / 3000, EGL) | 53 / 61 / 48%, mean 54.0%; tasks moving two objects 23.3–56.7%, single-object tasks 76.7–86.7% |
 | 2026-10-14 | — | SmolVLA LIBERO-Long failure breakdown: per-predicate logging rerun (same seeds; identical per-episode outcomes) | success 54.0%, partial 24.3%, none 20.3%, undone 1.3%; stove on 100% / pot on stove 77% (task 2); bowl in drawer 100% / drawer closed 77% (task 3); tasks 0 and 7 do nothing in 16 and 19 of 30 |
+| 2026-10-14 | harness M0 | Harness rollout loop (`harness/`) plugged into lerobot-eval, all components off; tasks 0-1, seed 1000 | identical to the baseline episode for episode: 4/10 and 7/10, same success steps and predicate times |
 | 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |
