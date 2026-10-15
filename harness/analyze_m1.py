@@ -45,7 +45,7 @@ def main():
     base = episodes(glob.glob(os.path.join(BASE, "subgoals_s*.jsonl")))
     rows = []
     for step in (0, 1):
-        for wording in ("trained", "split"):
+        for wording in ("trained", "split", "libero90"):
             eps = episodes(glob.glob(os.path.join(M1, f"step{step}_{wording}_s*.jsonl")))
             for t in sorted({e["task_id"] for e in eps}):
                 plan = PLANS[t][step]
@@ -62,7 +62,7 @@ def main():
     for r in rows:
         print(f"{r['task']:>4} {r['step'] + 1:>4} {r['wording']:8} {r['n']:>3} {r['commanded']:8.0f}% "
               f"{r['baseline']:7.0f}% {r['other']:5.0f}%  {r['instruction']}")
-    for w in ("trained", "split"):
+    for w in ("trained", "split", "libero90"):
         rs = [r for r in rows if r["wording"] == w]
         if rs:
             print(f"\n{w}: mean commanded {sum(r['commanded'] for r in rs) / len(rs):.1f}% vs baseline "

@@ -16,7 +16,8 @@ class HarnessConfig:
     # instead of the full instruction.
     steps: bool = False
     # step wording: "trained" (phrasing from SmolVLA's single-object training
-    # tasks) or "split" (the task's sentence cut at "and")
+    # tasks), "split" (the task's sentence cut at "and") or "libero90" (the
+    # same-scene LIBERO-90 instruction, where one exists)
     wording: str = "trained"
     # M1: run only this step of the plan (0-based), alone from the task's
     # initial state, for the whole step budget
@@ -26,8 +27,8 @@ class HarnessConfig:
     def from_env(cls):
         raw = os.environ.get("HARNESS_CONFIG", "").strip()
         cfg = cls(**json.loads(raw)) if raw else cls()
-        if cfg.wording not in ("trained", "split"):
-            raise ValueError(f"wording must be trained or split, got {cfg.wording!r}")
+        if cfg.wording not in ("trained", "split", "libero90"):
+            raise ValueError(f"wording must be trained, split or libero90, got {cfg.wording!r}")
         return cfg
 
     def describe(self):

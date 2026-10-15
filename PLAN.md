@@ -316,7 +316,29 @@ Fairness rules (decide what a comparison claims):
         recovery around it (the 24% partial episodes), (2) fine-tune SmolVLA
         on step-segmented LIBERO-Long demos so it follows step instructions,
         (3) a VLA that follows language better (likely too big for 8 GB).
-  - [ ] **M2** + sequencing (hand-written steps, LIBERO predicates as verifier)
+  - [x] **M1b: a SmolVLA trained on LIBERO-90** (2026-10-15). Why M1 failed:
+        `lerobot/smolvla_libero` trained on 40 tasks (Spatial/Object/Goal/
+        Long); our step wordings are in it verbatim, but only in other
+        scenes, while the LIBERO-Long scenes only ever came with the full
+        two-step sentence. LIBERO-90 (the training half of LIBERO-100) has
+        single-step tasks in the same scenes. No larger SmolVLA exists for
+        LIBERO (every checkpoint uses the 500M backbone). `Kesvill/
+        smolvla_libero_90` (SmolVLA, ~1,900 LIBERO-90 demos, 100k steps; run
+        with n_action_steps 10, same sanity success as 1): 28/30 on its own
+        LIBERO-90 tasks; **0% on LIBERO-Long with the full instruction**
+        (300 episodes, 30% partial); with LIBERO-90 step wording
+        (`plans.py` `libero90`), **commanded step 68.7%** (vs 13.7% for
+        smolvla_libero), other-object 4.1%; **82.4% on the 15 steps whose
+        instruction exists in LIBERO-90 for that scene, 0% on the 3 that
+        don't**. The language failure was a data gap, not the model.
+        Product of step rates on the 6 fully covered tasks (0, 2, 3, 4, 6,
+        7): 69.0% vs 43.9% for smolvla_libero on the same tasks (step 2
+        measured from the initial scene, not after step 1). Results in
+        `results/libero/kesvill_l90/`.
+  - [ ] **M2** + sequencing (hand-written steps, LIBERO predicates as verifier),
+        with the LIBERO-90 checkpoint on the 6 fully covered tasks; later our
+        own SmolVLA fine-tuned on LIBERO-90 + LIBERO-Long to cover tasks 1, 5,
+        8 and 9
   - [ ] **M3** + retry a failed step
   - [ ] **M4** + recovery pose before each step
   - [ ] **M5** visual verifier instead of predicates (first fair comparison)
@@ -473,4 +495,5 @@ needs it.
 | 2026-10-14 | — | SmolVLA LIBERO-Long failure breakdown: per-predicate logging rerun (same seeds; identical per-episode outcomes) | success 54.0%, partial 24.3%, none 20.3%, undone 1.3%; stove on 100% / pot on stove 77% (task 2); bowl in drawer 100% / drawer closed 77% (task 3); tasks 0 and 7 do nothing in 16 and 19 of 30 |
 | 2026-10-14 | harness M0 | Harness rollout loop (`harness/`) plugged into lerobot-eval, all components off; tasks 0-1, seed 1000 | identical to the baseline episode for episode: 4/10 and 7/10, same success steps and predicate times |
 | 2026-10-15 | harness M1 | Each plan step alone from the task's start, 520 steps, trained and split wording, 3 seeds (`run_m1.sh`) | commanded predicate 13.7% (trained) / 3.0% (split) vs 64.4% / 57.4% with the full instruction; other step done instead up to 53% (task 1) and 83% (task 8) |
+| 2026-10-15 | harness M1b | `Kesvill/smolvla_libero_90` (SmolVLA trained on LIBERO-90) on LIBERO-Long: full instruction, and each step alone in LIBERO-90 wording; 3 seeds | full instruction 0% (30% partial); commanded step 68.7% (82.4% on 15 same-scene LIBERO-90 steps, 0% on 3 without), other-object 4.1%; product of step rates on the 6 covered tasks 69.0% vs 43.9% for smolvla_libero |
 | 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |

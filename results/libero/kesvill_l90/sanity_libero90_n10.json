@@ -1,0 +1,282 @@
+{
+  "per_task": [
+    {
+      "task_group": "libero_90",
+      "task_id": 20,
+      "metrics": {
+        "sum_rewards": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "max_rewards": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "successes": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "video_paths": [
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_0.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_1.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_2.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_3.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_4.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_5.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_6.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_7.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_8.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_9.mp4"
+        ],
+        "predicted_video_paths": []
+      },
+      "n_episodes": 10,
+      "n_success": 10,
+      "pc_success": 100.0,
+      "pc_success_ci95": [
+        72.24672001371108,
+        100.0
+      ]
+    },
+    {
+      "task_group": "libero_90",
+      "task_id": 24,
+      "metrics": {
+        "sum_rewards": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "max_rewards": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "successes": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "video_paths": [
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_0.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_1.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_2.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_3.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_4.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_5.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_6.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_7.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_8.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_9.mp4"
+        ],
+        "predicted_video_paths": []
+      },
+      "n_episodes": 10,
+      "n_success": 10,
+      "pc_success": 100.0,
+      "pc_success_ci95": [
+        72.24672001371108,
+        100.0
+      ]
+    },
+    {
+      "task_group": "libero_90",
+      "task_id": 50,
+      "metrics": {
+        "sum_rewards": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          0.0,
+          0.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "max_rewards": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          0.0,
+          0.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "successes": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          false,
+          false,
+          true,
+          true,
+          true
+        ],
+        "video_paths": [
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_0.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_1.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_2.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_3.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_4.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_5.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_6.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_7.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_8.mp4",
+          "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_9.mp4"
+        ],
+        "predicted_video_paths": []
+      },
+      "n_episodes": 10,
+      "n_success": 8,
+      "pc_success": 80.0,
+      "pc_success_ci95": [
+        49.01624715366418,
+        94.33178485456247
+      ]
+    }
+  ],
+  "per_group": {
+    "libero_90": {
+      "avg_sum_reward": 0.9333333333333333,
+      "avg_max_reward": 0.9333333333333333,
+      "pc_success": 93.33333333333333,
+      "n_episodes": 30,
+      "n_success": 28,
+      "pc_success_ci95": [
+        78.6765416373831,
+        98.15229762087296
+      ],
+      "video_paths": [
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_0.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_1.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_2.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_3.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_4.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_5.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_6.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_7.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_8.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_9.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_0.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_1.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_2.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_3.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_4.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_5.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_6.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_7.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_8.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_9.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_0.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_1.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_2.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_3.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_4.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_5.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_6.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_7.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_8.mp4",
+        "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_9.mp4"
+      ],
+      "predicted_video_paths": []
+    }
+  },
+  "overall": {
+    "avg_sum_reward": 0.9333333333333333,
+    "avg_max_reward": 0.9333333333333333,
+    "pc_success": 93.33333333333333,
+    "n_episodes": 30,
+    "n_success": 28,
+    "pc_success_ci95": [
+      78.6765416373831,
+      98.15229762087296
+    ],
+    "eval_s": 166.6547975540161,
+    "eval_ep_s": 5.555159934361776,
+    "video_paths": [
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_0.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_1.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_2.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_3.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_4.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_5.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_6.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_7.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_8.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_20/eval_episode_9.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_0.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_1.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_2.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_3.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_4.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_5.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_6.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_7.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_8.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_24/eval_episode_9.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_0.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_1.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_2.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_3.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_4.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_5.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_6.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_7.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_8.mp4",
+      "/home/saksham/experiments/libero_runs/kesvill/sanity_l90_n10/videos/libero_90_50/eval_episode_9.mp4"
+    ],
+    "predicted_video_paths": []
+  }
+}

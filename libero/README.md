@@ -19,6 +19,17 @@ cp franka_cube_lift/libero/run_libero_eval.sh lerobot/
 cd lerobot && LIBERO_CONFIG_PATH=$PWD/.libero sh -c 'echo n | .env/bin/python -c "import libero.libero"'
 ```
 
+### Step instructions need same-scene training data
+
+`lerobot/smolvla_libero` mostly ignores step instructions (13.7% of steps
+done when given one step alone; harness M1): it never saw single steps in
+the LIBERO-Long scenes. `Kesvill/smolvla_libero_90`, a SmolVLA trained on
+LIBERO-90 (single-step tasks in the same scenes), scores 0% on LIBERO-Long
+with the full instruction but follows step instructions: 82.4% on the 15
+steps whose instruction exists in LIBERO-90 for that scene, 0% on the 3 that
+don't (`run_kesvill.sh`, `results/libero/kesvill_l90/`). Run it with
+`--policy.n_action_steps=10` (default 1: same success, 3x slower).
+
 Per-subgoal logging (same arguments as `lerobot-eval`):
 
 ```bash

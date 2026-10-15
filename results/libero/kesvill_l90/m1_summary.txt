@@ -1,0 +1,20 @@
+task step wording    n commanded baseline  other  instruction
+   0    1 libero90  30       77%      60%     0%  pick up the alphabet soup and put it in the basket
+   1    1 libero90  30        0%       0%     0%  pick up the cream cheese and place it in the basket
+   2    1 libero90  30      100%       0%     0%  turn on the stove
+   3    1 libero90  30      100%      60%     0%  put the black bowl in the bottom drawer of the cabinet
+   4    1 libero90  30       80%      17%     0%  put the white mug on the left plate
+   6    1 libero90  30       93%       7%     0%  put the white mug on the plate
+   7    1 libero90  30       50%       0%     0%  pick up the alphabet soup and put it in the basket
+   8    1 libero90  30        0%       0%    70%  put the left moka pot on the stove
+   9    1 libero90  30        0%       0%     3%  put the yellow and white mug in the microwave
+   0    2 libero90  30       70%       0%     0%  pick up the tomato sauce and put it in the basket
+   1    2 libero90  30       63%       0%     0%  pick up the butter and put it in the basket
+   2    2 libero90  30      100%      60%     0%  put the moka pot on the stove
+   3    2 libero90  30      100%       0%     0%  close the bottom drawer of the cabinet
+   4    2 libero90  30       80%       0%     0%  put the yellow and white mug on the right plate
+   6    2 libero90  30       60%       0%     0%  put the chocolate pudding to the right of the plate
+   7    2 libero90  30       80%       0%     0%  pick up the cream cheese box and put it in the basket
+   8    2 libero90  30       90%       0%     0%  put the right moka pot on the stove
+   9    2 libero90  30       93%       0%     0%  close the microwave
+libero90: mean commanded 68.7% vs baseline 11.3% on the same steps; other-object 4.1%  (18 steps)
