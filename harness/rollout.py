@@ -20,12 +20,14 @@ from lerobot.envs.utils import NEW_ROLLOUT_OPTION
 from lerobot.utils.constants import ACTION
 
 from harness.config import HarnessConfig
+from harness.plans import PLANS
 from harness.vla_skill import VLASkill
 
 
 @dataclass
 class Step:
     instruction: str
+    check: tuple = None  # goal predicate that verifies the step (None: no check)
 
 
 @dataclass
@@ -49,10 +51,17 @@ def task_descriptions(env):
             return [""] * env.num_envs
 
 
-def make_plan(task, cfg):
+def make_plan(task, task_id, cfg):
     if not cfg.steps:
         return [Step(task)]
-    raise NotImplementedError("step plans come in M1/M2")
+    steps = [Step(s.instruction(cfg.wording), s.check) for s in PLANS[task_id]]
+    if cfg.only_step is not None:
+        if cfg.only_step >= len(steps):
+            raise ValueError(f"task {task_id} has {len(steps)} steps; no step {cfg.only_step}")
+        steps = [steps[cfg.only_step]]
+    if len(steps) > 1:
+        raise NotImplementedError("sequencing several steps comes in M2")
+    return steps
 
 
 def successes_from_info(info, n):
@@ -82,7 +91,11 @@ def harness_rollout(env, policy, env_preprocessor, env_postprocessor, preprocess
     observation, info = env.reset(seed=seeds, options={NEW_ROLLOUT_OPTION: True})
     if render_callback is not None:
         render_callback(env)
-    episodes = [Episode(make_plan(t, cfg)) for t in task_descriptions(env)]
+    task_ids = list(env.get_attr("task_id"))
+    episodes = [Episode(make_plan(t, tid, cfg)) for t, tid in zip(task_descriptions(env), task_ids)]
+    if cfg.steps:
+        print(f"[harness] {cfg.describe()}: " + " | ".join(
+            sorted({f"task {tid}: {e.instruction!r}" for tid, e in zip(task_ids, episodes)})), flush=True)
 
     all_actions, all_rewards, all_successes, all_dones = [], [], [], []
     step = 0

@@ -1,0 +1,32 @@
+task step wording    n commanded baseline  other  instruction
+   0    1 trained   30        0%      43%     7%  pick up the alphabet soup and place it in the basket
+   1    1 trained   30        0%      63%    53%  pick up the cream cheese and place it in the basket
+   2    1 trained   30        3%     100%     0%  turn on the stove
+   3    1 trained   30       73%     100%    67%  put the black bowl in the bottom drawer of the cabinet
+   4    1 trained   30       27%      50%    17%  put the white mug on the left plate
+   6    1 trained   30        7%      73%     0%  put the white mug on the plate
+   7    1 trained   30       10%      37%    10%  pick up the alphabet soup and place it in the basket
+   8    1 trained   30       83%      87%    17%  put the left moka pot on the stove
+   9    1 trained   30       17%      87%     3%  put the yellow and white mug in the microwave
+   0    1 split     30       20%      43%     7%  put the alphabet soup in the basket
+   1    1 split     30        0%      63%     3%  put the cream cheese box in the basket
+   7    1 split     30        0%      37%     0%  put the alphabet soup in the basket
+   0    2 trained   30        0%      30%     0%  pick up the tomato sauce and place it in the basket
+   1    2 trained   30        3%      77%     0%  pick up the butter and place it in the basket
+   2    2 trained   30        0%      77%     3%  put the moka pot on the stove
+   3    2 trained   30        0%      77%    30%  close the bottom drawer of the cabinet
+   4    2 trained   30        0%      47%     0%  put the yellow and white mug on the right plate
+   6    2 trained   30        3%      43%     0%  put the chocolate pudding to the right of the plate
+   7    2 trained   30        7%      27%    27%  pick up the cream cheese and place it in the basket
+   8    2 trained   30       10%      57%    83%  put the right moka pot on the stove
+   9    2 trained   30        3%      87%     3%  close the microwave
+   0    2 split     30        0%      30%     0%  put the tomato sauce in the basket
+   1    2 split     30        0%      77%     0%  put the butter in the basket
+   2    2 split     30        3%      77%     0%  put the moka pot on it
+   3    2 split     30        0%      77%     0%  close it
+   7    2 split     30        0%      27%     3%  put the cream cheese box in the basket
+   9    2 split     30        3%      87%    13%  close it
+
+trained: mean commanded 13.7% vs baseline 64.4% on the same steps; other-object 17.8%  (18 steps)
+
+split: mean commanded 3.0% vs baseline 57.4% on the same steps; other-object 3.0%  (9 steps)
