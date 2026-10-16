@@ -342,7 +342,16 @@ Fairness rules (decide what a comparison claims):
         step 1 in 23% (stove switched back off 19/30, first mug knocked off
         17/30). The same steps from the initial pose: 60–100% (M1b). The
         handoff bottleneck, at full strength.
-  - [ ] **M3** + retry a failed step
+  - [x] **M3** + retry a failed step (2026-10-16): a step not confirmed
+        within 160 control steps of starting (95% of successful steps finish
+        by ~153) is retried once, through the start-state check and
+        recovery, if ≥ 160 steps remain; a finished step whose check stops
+        holding is gone back to. **67.8%** (66.7 / 65.0 / 71.7) vs 56.1% for
+        M4 and 43.9% for smolvla_libero end to end; per task 53 / 87 / 93 /
+        63 / 67 / 43%. 79 of 180 episodes retried, 42% of retried steps then
+        succeeded; 42 times the 1-retry limit was hit (budget 6 times), 10
+        undos. Matches the 69% expected from the step success rates. Next
+        knob: max_retries 2.
   - [x] **M4** + recovery pose between steps (2026-10-15, done before M3
         because M2 showed the handoff was the failure): `harness/recover.py`
         drives the hand back to its start pose, gripper open, through
@@ -527,4 +536,6 @@ needs it.
 | 2026-10-15 | harness M2 | Steps in sequence, no recovery; LIBERO-90 SmolVLA, 6 covered tasks, batch 1, 3 seeds | 0/180; step 1 done 57–100%, step 2 never; step 1 undone in 23% |
 | 2026-10-15 | harness M4 | + recovery pose between steps (hand back to start pose, gripper open, 28–39 steps) | 56.1% (56.7 / 56.7 / 55.0) vs 43.9% smolvla_libero end to end on the same tasks; best on tasks 3 (87%), 6 (60%), 4 (50%) |
 | 2026-10-16 | harness M4 | Recovery triggered by a start-state check before every step (as in the cube harness) instead of after every finished step | 56.1% (56.7 / 56.7 / 55.0), same as M4; 180/180 first steps pass, 146 failed checks before step 2 all met after recovery |
+| 2026-10-16 | harness M3 | + retry a step that isn't confirmed within 160 steps (once, through start-state check and recovery, if ≥ 160 steps remain), undo check | 67.8% (66.7 / 65.0 / 71.7) vs M4 56.1% and smolvla_libero 43.9%; 42% of retried steps succeed; retry limit hit 42 times |
+| 2026-10-16 | — | Repo renamed to `conductor-vla` ("Conductor: a harness for agentic robotics"); README leads with the LIBERO-Long result | — |
 | 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |

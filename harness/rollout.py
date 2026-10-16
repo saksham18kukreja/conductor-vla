@@ -18,6 +18,10 @@ M4 (recover): before each step, including the first, the harness checks the
 VLA skill's start state (hand at the episode's start pose, gripper open:
 harness/start_state.py) and only if it fails drives the hand back there first
 (harness/recover.py); those control steps count against the budget.
+M3 (retry): a step not confirmed within step_timeout control steps of its
+start is retried (start-state check, recovery, same instruction), at most
+max_retries times and only while min_budget steps remain; a finished step
+whose check stops holding is gone back to.
 Step switches are written to $HARNESS_LOG (JSON lines, one per episode).
 """
 
@@ -55,6 +59,9 @@ class Episode:
     held: int = 0  # consecutive control steps the current step's check has held
     start: tuple = None  # hand pose at the start of the episode (recovery target)
     recovering: object = None  # active Recovery, if any
+    t0: int = 0  # control step at which the current attempt started
+    retries: dict = field(default_factory=dict)  # step index -> retries used
+    lost: dict = field(default_factory=dict)  # finished step -> steps its check has failed
     log: list = field(default_factory=list)  # (control step, event)
 
     @property
@@ -111,11 +118,44 @@ def successes_from_info(info, n):
 def begin_step(env, i, e, t):
     """Check the skill's start state before step e.current; recover only if it fails."""
     ok, msg = start_state.check(env, i, e.start)
+    e.t0 = t
     if ok:
         e.log.append((t, f"step {e.current}: start state ok"))
     else:
         e.log.append((t, f"step {e.current}: start state failed ({msg}), recovering"))
         e.recovering = Recovery(*e.start)
+
+
+def retry_or_undo(env, i, e, t, max_steps, cfg, skill):
+    """M3. -> True if the episode was sent back to a step (this control step is used up)."""
+    # undo check: a finished step whose check has stopped holding
+    for k in range(e.current):
+        check = e.plan[k].check
+        e.lost[k] = 0 if check is None or check_holds(env, i, check) else e.lost.get(k, 0) + 1
+        if e.lost[k] >= cfg.confirm_steps:
+            e.log.append((t, f"step {k} undone, going back to it"))
+            e.current, e.held, e.lost = k, 0, {}
+            skill.reset()
+            begin_step(env, i, e, t)
+            return True
+    # timeout: the current step has not been confirmed in time
+    if e.step.check is None or t - e.t0 < cfg.step_timeout:
+        return False
+    used = e.retries.get(e.current, 0)
+    if used < cfg.max_retries and max_steps - t >= cfg.min_budget:
+        e.retries[e.current] = used + 1
+        e.log.append((t, f"step {e.current} timed out after {t - e.t0} steps, retry {used + 1}"))
+        e.held = 0
+        skill.reset()
+        if cfg.recover:
+            begin_step(env, i, e, t)
+        else:
+            e.t0 = t
+        return True
+    if used >= cfg.max_retries or max_steps - t < cfg.min_budget:
+        e.t0 = max_steps  # no retry left: let the attempt run to the end of the budget
+        e.log.append((t, f"step {e.current} timed out, no retry ({'limit' if used >= cfg.max_retries else 'budget'})"))
+    return False
 
 
 def harness_rollout(env, policy, env_preprocessor, env_postprocessor, preprocessor, postprocessor,
@@ -168,9 +208,14 @@ def harness_rollout(env, policy, env_preprocessor, env_postprocessor, preprocess
                         e.log.append((step + 1, f"recovered in {e.recovering.steps} steps"
                                       + ("" if ok else f" (start state still not met: {msg})")))
                         e.recovering = None
+                        e.t0 = step + 1
                         skill.reset()
                     continue
-                if done[i] or e.current >= len(e.plan) - 1 or e.step.check is None:
+                if done[i]:
+                    continue
+                if cfg.retry and retry_or_undo(env, i, e, step + 1, max_steps, cfg, skill):
+                    continue
+                if e.current >= len(e.plan) - 1 or e.step.check is None:
                     continue
                 e.held = e.held + 1 if check_holds(env, i, e.step.check) else 0
                 if e.held >= cfg.confirm_steps:

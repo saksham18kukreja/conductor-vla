@@ -30,6 +30,16 @@ class HarnessConfig:
     # the episode's start pose, gripper open; harness/start_state.py) and, only
     # if it fails, drives the hand back there first (harness/recover.py)
     recover: bool = False
+    # M3: retry a step that has not been confirmed within step_timeout control
+    # steps of starting (95% of successful steps finish by ~153), at most
+    # max_retries times per step and only while at least min_budget steps are
+    # left (a recovery + a typical step); a finished step whose check stops
+    # holding is gone back to (undo check). Retries go through the start-state
+    # check, so they recover first when recover is on.
+    retry: bool = False
+    step_timeout: int = 160
+    max_retries: int = 1
+    min_budget: int = 160
 
     @classmethod
     def from_env(cls):
@@ -44,4 +54,7 @@ class HarnessConfig:
             return "harness off (M0: full instruction)"
         if self.only_step is not None:
             return f"M1: step {self.only_step} alone, {self.wording} wording"
-        return f"{'M4' if self.recover else 'M2'}: steps in sequence{' + recovery pose' if self.recover else ''}, {self.wording} wording"
+        parts = ["steps in sequence"] + (["recovery pose"] if self.recover else []) + (
+            [f"retry (timeout {self.step_timeout}, max {self.max_retries})"] if self.retry else [])
+        tag = "M3" if self.retry else ("M4" if self.recover else "M2")
+        return f"{tag}: {' + '.join(parts)}, {self.wording} wording"

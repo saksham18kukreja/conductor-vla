@@ -1,14 +1,57 @@
-# franka_cube_lift
+# Conductor: a harness for agentic robotics
+
+Agentic AI wraps an LLM in a harness: tools, memory, verification, retries.
+Conductor does the same for robots. An orchestrator calls skills (learned
+policies, or a VLA given one step at a time), checks each step, brings the
+robot back to a state the next skill can start from, and retries what
+failed. Every component is added one at a time and measured, to find where
+the approach helps and where it breaks. Roadmap and rules:
+[PLAN.md](PLAN.md).
+
+## Headline result: LIBERO-Long
+
+Same tasks, seeds and 520-step budget as the end-to-end VLA. SmolVLA as the
+skill, trained on LIBERO-90's single-step tasks; the harness gives it one
+step instruction at a time. 6 of the 10 LIBERO-Long tasks (those whose steps
+all exist in LIBERO-90), 10 episodes × 3 seeds each:
+
+| System | Success |
+|---|---|
+| SmolVLA end to end (`lerobot/smolvla_libero`, full instruction) | 43.9% |
+| SmolVLA trained on LIBERO-90, full instruction | 0% |
+| + harness: one step at a time, verified (M2) | 0% |
+| + start-state check and recovery pose between steps (M4) | 56.1% |
+| **+ retry a step that times out (M3)** | **67.8%** |
+
+What it shows:
+
+- **Step instructions need same-scene training data.** The end-to-end
+  SmolVLA mostly ignores step instructions (13.7% of steps done); the
+  LIBERO-90 one follows them (82.4% where LIBERO-90 has the instruction
+  for that scene).
+- **The handoff is the bottleneck.** Each step works from the robot's start
+  pose (60–100%) and fails right after the previous step (0%), often undoing
+  it. Returning the hand to its start pose between steps (a checked start
+  state, as for the cube skills) takes the chain from 0% to 56%.
+- **Retries recover what's left.** 42% of retried steps succeed; the result
+  matches the 69% expected from the steps' individual success rates.
+
+Caveats: an upper bound so far. Steps are verified with LIBERO's own goal
+predicates and the plans are written by hand; the visual verifier (M5) and
+an LLM planner (M6) come next. The harness's VLA was trained on different
+data (LIBERO-90) than the end-to-end one (the four standard suites). Details:
+[libero/README.md](libero/README.md), code in `harness/`.
+
+## Where it started: cube lift
 
 Behaviour cloning on a Franka Panda cube-lift task in MuJoCo. A scripted
 controller (`scripts/controller.py`) generates demonstrations; an MLP policy
 (`scripts/train_bc.py`) learns to imitate it from state. Since v4.0 the cube's
 position comes from a camera and detector instead of the simulator.
 
-This cube-lift policy is the first skill of a larger goal: a harness for an
-agentic robotics system. See [PLAN.md](PLAN.md) for the roadmap and
-[SKILLS.md](SKILLS.md) for the skill library (pick, place, push, home) and the
-recovery pose.
+This cube-lift policy was the first skill of the harness. See
+[SKILLS.md](SKILLS.md) for the skill library (pick, place, push, home), the
+start-state contract and the recovery pose.
 
 [![Skill loop with the recovery rule: pick, place, push, pick](videos/loop_recover_preview.gif)](videos/loop_recover.mp4)
 
