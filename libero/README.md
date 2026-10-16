@@ -30,6 +30,36 @@ steps whose instruction exists in LIBERO-90 for that scene, 0% on the 3 that
 don't (`run_kesvill.sh`, `results/libero/kesvill_l90/`). Run it with
 `--policy.n_action_steps=10` (default 1: same success, 3x slower).
 
+### Fine-tuning SmolVLA on this laptop (cost probe, 2026-10-16)
+
+`train_probe.sh`: short `lerobot-train` runs from `lerobot/smolvla_libero` on
+`lerobot/libero`, peak GPU memory sampled every 2 s. RTX 4060, 8 GB.
+
+| Setting | Batch | Peak GPU | Steady speed | Trainable |
+|---|---|---|---|---|
+| Full recipe (everything trained, as smolvla_libero was) | 8 | 7.8 GB | out of memory | 450M |
+| Action expert only, vision frozen | 8 | 3.2 GB | 2.5–3.3 steps/s | 100M |
+| Action expert only | 16 | 4.9 GB | 1.4–1.6 steps/s | 100M |
+| Action expert only | 32 | 7.8 GB | out of memory | 100M |
+| + `torch.compile` (`--policy.compile_model=true --policy.compile_mode=default`) | 16 | 4.2 GB | **1.89 steps/s** | 100M |
+| LoRA r=32 on the language model's and expert's q/v + action/state projections | 16 | 4.8 GB | 1.45 steps/s | 3M |
+| **LoRA (same) + `torch.compile`** | 16 | **3.9 GB** | **~1.9 steps/s** | 3M |
+
+- The full recipe can't fit in 8 GB at any batch: AdamW state for 450M
+  parameters is ~7 GB. Expert-only training is how the step-following
+  `Kesvill/smolvla_libero_90` was trained.
+- The GPU is the limit: more data workers, mixed precision (`use_amp`) don't
+  change the speed. `torch.compile` gives ~30% after a ~1 min warm-up.
+- LoRA on the language model costs nothing extra, so the part that reads the
+  instruction can be adapted too.
+- `--gradient_accumulation` is listed by `--help` but rejected by this
+  LeRobot version. `--eval_freq` no longer exists.
+- `torchcodec` needs FFmpeg shared libs: `conda install -p .env -c conda-forge
+  ffmpeg=7`, and `LD_LIBRARY_PATH=$PWD/.env/lib` (set in the script).
+
+At ~30 samples/s: ~480k samples (0.5 epoch of LIBERO-90 + LIBERO-Long steps
++ the 4 suites) ≈ 4.5 h, ~800k ≈ 7.5 h.
+
 Per-subgoal logging (same arguments as `lerobot-eval`):
 
 ```bash

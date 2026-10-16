@@ -539,4 +539,5 @@ needs it.
 | 2026-10-16 | harness M3 | + retry a step that isn't confirmed within 160 steps (once, through start-state check and recovery, if ≥ 160 steps remain), undo check | 67.8% (66.7 / 65.0 / 71.7) vs M4 56.1% and smolvla_libero 43.9%; 42% of retried steps succeed; retry limit hit 42 times |
 | 2026-10-16 | — | Repo renamed to `conductor-vla` ("Conductor: a harness for agentic robotics"); README leads with the LIBERO-Long result | — |
 | 2026-10-16 | — | README rewritten around Conductor (result, retry before/after video, how it works, how to run); the cube-lift write-up moved to `docs/cube_lift.md` and summarised | — |
+| 2026-10-16 | — | Fine-tuning cost probe on the laptop (`libero/train_probe.sh`): from smolvla_libero on lerobot/libero | full recipe OOM at batch 8 (AdamW state for 450M params); expert-only batch 16 4.9 GB 1.4–1.6 steps/s; + torch.compile 1.89 steps/s; LoRA (language model + expert) + compile 3.9 GB ~1.9 steps/s (~30 samples/s) → ~4.5 h per 480k samples |
 | 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |
