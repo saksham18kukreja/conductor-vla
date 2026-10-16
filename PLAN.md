@@ -340,7 +340,7 @@ Fairness rules (decide what a comparison claims):
         batch size 1; the 6 fully covered tasks (0, 2, 3, 4, 6, 7), 3 seeds.
         **0% (0/180)**: step 1 done 57–100%, step 2 never, and step 2 undoes
         step 1 in 23% (stove switched back off 19/30, first mug knocked off
-        17/30). The same steps from the initial pose: 60–100% (M1b). The
+        17/30). The same steps from the initial pose: 50–100% (M1b). The
         handoff bottleneck, at full strength.
   - [x] **M3** + retry a failed step (2026-10-16): a step not confirmed
         within 160 control steps of starting (95% of successful steps finish
@@ -490,7 +490,7 @@ needs it.
   or false success. Declaring start states in the contract and checking them
   in the harness turns that into an immediate, honest refusal.
 - **The handoff lesson transfers to VLAs.** A LIBERO-90 SmolVLA does each
-  step 60–100% from the robot's start pose and 0% right after the previous
+  step 50–100% from the robot's start pose and 0% right after the previous
   step (M2); returning the hand to the start pose between steps takes the
   chain from 0% to 56.1%, above the end-to-end VLA (43.9%). Same fix as the
   cube harness: skills have start states, the harness brings the robot to
@@ -538,4 +538,5 @@ needs it.
 | 2026-10-16 | harness M4 | Recovery triggered by a start-state check before every step (as in the cube harness) instead of after every finished step | 56.1% (56.7 / 56.7 / 55.0), same as M4; 180/180 first steps pass, 146 failed checks before step 2 all met after recovery |
 | 2026-10-16 | harness M3 | + retry a step that isn't confirmed within 160 steps (once, through start-state check and recovery, if ≥ 160 steps remain), undo check | 67.8% (66.7 / 65.0 / 71.7) vs M4 56.1% and smolvla_libero 43.9%; 42% of retried steps succeed; retry limit hit 42 times |
 | 2026-10-16 | — | Repo renamed to `conductor-vla` ("Conductor: a harness for agentic robotics"); README leads with the LIBERO-Long result | — |
+| 2026-10-16 | — | README rewritten around Conductor (result, retry before/after video, how it works, how to run); the cube-lift write-up moved to `docs/cube_lift.md` and summarised | — |
 | 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |

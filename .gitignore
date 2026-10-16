@@ -20,6 +20,8 @@ videos/*
 !videos/skill_chain.mp4
 !videos/loop_recover.mp4
 !videos/loop_recover_preview.gif
+!videos/retry_before_after.mp4
+!videos/retry_before_after_preview.gif
 
 # W&B local run cache (runs live on wandb.ai)
 wandb/
