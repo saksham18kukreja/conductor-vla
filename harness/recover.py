@@ -16,6 +16,8 @@ position and orientation. Steps count against the episode budget.
 import numpy as np
 from scipy.spatial.transform import Rotation
 
+from harness.start_state import OPEN_WIDTH, gripper_width
+
 POS_TOL = 0.01   # m
 ROT_TOL = 0.05   # rad
 MAX_STEPS = 80
@@ -57,4 +59,5 @@ class Recovery:
         c = controller(env, i)
         pos_err = np.linalg.norm(self.target_pos - c.ee_pos)
         rot_err = np.linalg.norm(Rotation.from_matrix(self.target_rot @ c.ee_ori_mat.T).as_rotvec())
-        return (self.phase == "return" and pos_err < POS_TOL and rot_err < ROT_TOL) or self.steps >= MAX_STEPS
+        at_pose = pos_err < POS_TOL and rot_err < ROT_TOL and gripper_width(env, i) >= OPEN_WIDTH
+        return (self.phase == "return" and at_pose) or self.steps >= MAX_STEPS

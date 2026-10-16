@@ -26,8 +26,9 @@ class HarnessConfig:
     # consecutive control steps (20 Hz), then the next step's instruction is
     # given and the VLA's action queue cleared
     confirm_steps: int = 5
-    # M4: before each new step, drive the hand back to its pose at the start
-    # of the episode with the gripper open (harness/recover.py)
+    # M4: before each step the harness checks the skill's start state (hand at
+    # the episode's start pose, gripper open; harness/start_state.py) and, only
+    # if it fails, drives the hand back there first (harness/recover.py)
     recover: bool = False
 
     @classmethod

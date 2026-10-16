@@ -14,7 +14,9 @@ so runs with it are upper bounds); once it has held for confirm_steps steps,
 the episode moves to the next step and the VLA's action queue is cleared. The
 VLA keeps one queue for the whole batch, so sequencing needs batch size 1.
 After the last step it keeps the last instruction until the episode ends.
-M4 (recover): between steps the hand is first driven back to its start pose
+M4 (recover): before each step, including the first, the harness checks the
+VLA skill's start state (hand at the episode's start pose, gripper open:
+harness/start_state.py) and only if it fails drives the hand back there first
 (harness/recover.py); those control steps count against the budget.
 Step switches are written to $HARNESS_LOG (JSON lines, one per episode).
 """
@@ -34,6 +36,7 @@ from lerobot.utils.constants import ACTION
 
 from harness.config import HarnessConfig
 from harness.plans import PLANS
+from harness import start_state
 from harness.recover import Recovery, start_pose
 from harness.vla_skill import VLASkill
 
@@ -105,6 +108,16 @@ def successes_from_info(info, n):
     return [False] * n
 
 
+def begin_step(env, i, e, t):
+    """Check the skill's start state before step e.current; recover only if it fails."""
+    ok, msg = start_state.check(env, i, e.start)
+    if ok:
+        e.log.append((t, f"step {e.current}: start state ok"))
+    else:
+        e.log.append((t, f"step {e.current}: start state failed ({msg}), recovering"))
+        e.recovering = Recovery(*e.start)
+
+
 def harness_rollout(env, policy, env_preprocessor, env_postprocessor, preprocessor, postprocessor,
                     seeds=None, return_observations=False, render_callback=None, **_unused):
     if return_observations:
@@ -124,6 +137,8 @@ def harness_rollout(env, policy, env_preprocessor, env_postprocessor, preprocess
         raise ValueError("sequencing steps needs --eval.batch_size=1 (the VLA's action queue is shared)")
     for i, e in enumerate(episodes):
         e.start = start_pose(env, i)
+        if cfg.recover:
+            begin_step(env, i, e, 0)
     if cfg.steps:
         print(f"[harness] {cfg.describe()}: " + " | ".join(
             sorted({f"task {tid}: {e.instruction!r}" for tid, e in zip(task_ids, episodes)})), flush=True)
@@ -149,7 +164,9 @@ def harness_rollout(env, policy, env_preprocessor, env_postprocessor, preprocess
             for i, e in enumerate(episodes):
                 if e.recovering is not None:
                     if e.recovering.done(env, i):
-                        e.log.append((step + 1, f"recovered in {e.recovering.steps} steps"))
+                        ok, msg = start_state.check(env, i, e.start)
+                        e.log.append((step + 1, f"recovered in {e.recovering.steps} steps"
+                                      + ("" if ok else f" (start state still not met: {msg})")))
                         e.recovering = None
                         skill.reset()
                     continue
@@ -162,7 +179,7 @@ def harness_rollout(env, policy, env_preprocessor, env_postprocessor, preprocess
                     e.held = 0
                     skill.reset()  # batch size 1: only this episode's queue
                     if cfg.recover:
-                        e.recovering = Recovery(*e.start)
+                        begin_step(env, i, e, step + 1)
 
         done = terminated | truncated | done
         if step + 1 == max_steps:

@@ -355,6 +355,14 @@ Fairness rules (decide what a comparison claims):
         on, which the step's demos never showed). Upper bound: privileged
         predicates and hand-written plans; different training data from the
         end-to-end baseline (LIBERO-90 vs the 4 suites incl. LIBERO-Long).
+        **Start-state contract** (2026-10-16): recovery is now triggered by
+        a check, as in the cube harness, not by "a step finished":
+        `harness/start_state.py` declares the VLA skill's start state (hand
+        within 2 cm / 0.1 rad of the episode's start pose, gripper ≥ 70 mm
+        open) and the harness checks it before every step, recovering only
+        on failure. Same result: 56.1% (56.7 / 56.7 / 55.0); 180/180 first
+        steps passed, 146 failed checks before step 2 all met after
+        recovery.
   - [ ] **M5** visual verifier instead of predicates (first fair comparison)
   - [ ] **M6** LLM orchestrator instead of hand-written steps
   - [ ] **M7** LIBERO-Plus
@@ -518,4 +526,5 @@ needs it.
 | 2026-10-15 | harness M1b | `Kesvill/smolvla_libero_90` (SmolVLA trained on LIBERO-90) on LIBERO-Long: full instruction, and each step alone in LIBERO-90 wording; 3 seeds | full instruction 0% (30% partial); commanded step 68.7% (82.4% on 15 same-scene LIBERO-90 steps, 0% on 3 without), other-object 4.1%; product of step rates on the 6 covered tasks 69.0% vs 43.9% for smolvla_libero |
 | 2026-10-15 | harness M2 | Steps in sequence, no recovery; LIBERO-90 SmolVLA, 6 covered tasks, batch 1, 3 seeds | 0/180; step 1 done 57–100%, step 2 never; step 1 undone in 23% |
 | 2026-10-15 | harness M4 | + recovery pose between steps (hand back to start pose, gripper open, 28–39 steps) | 56.1% (56.7 / 56.7 / 55.0) vs 43.9% smolvla_libero end to end on the same tasks; best on tasks 3 (87%), 6 (60%), 4 (50%) |
+| 2026-10-16 | harness M4 | Recovery triggered by a start-state check before every step (as in the cube harness) instead of after every finished step | 56.1% (56.7 / 56.7 / 55.0), same as M4; 180/180 first steps pass, 146 failed checks before step 2 all met after recovery |
 | 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |
