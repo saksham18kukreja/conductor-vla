@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use Conductor, please cite it as below."
+title: "Conductor: a harness for agentic robotics"
+abstract: >-
+  An orchestration harness around robot policies and VLAs: step-by-step
+  instructions, per-step verification, a start-state contract with a recovery
+  pose, and retries, each measured component by component. On LIBERO-Long it
+  lifts a SmolVLA trained on LIBERO-90 from 0% to 67.8% success.
+authors:
+  - family-names: Kukreja
+    given-names: Saksham
+repository-code: "https://github.com/saksham18kukreja/conductor-vla"
+license: Apache-2.0
+version: 0.1.0
+date-released: "2026-10-16"
+keywords:
+  - robotics
+  - vision-language-action
+  - VLA
+  - agentic
+  - LIBERO
+  - LeRobot
+  - SmolVLA

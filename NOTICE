@@ -1,0 +1,17 @@
+Conductor: a harness for agentic robotics
+Copyright 2026 Saksham Kukreja
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This repository includes third-party material:
+
+- models/franka_emika_panda/: Franka Emika Panda model from MuJoCo Menagerie
+  (https://github.com/google-deepmind/mujoco_menagerie), Apache License 2.0,
+  see models/franka_emika_panda/LICENSE. The cube scenes in that folder
+  (cube_lift_scene.xml, multi_cube_scene.xml) are this project's.
+- scripts/controller.py follows patterns from kevinzakka/mjctrl
+  (https://github.com/kevinzakka/mjctrl, commit f1c82c2); no code is vendored.
+
+The LIBERO harness (harness/, libero/) runs on LeRobot
+(https://github.com/huggingface/lerobot, Apache License 2.0) and LIBERO
+(https://github.com/Lifelong-Robot-Learning/LIBERO), installed separately.

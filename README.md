@@ -1,5 +1,10 @@
 # Conductor: a harness for agentic robotics
 
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Python 3.11 | 3.12](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](libero/README.md)
+[![Built on LeRobot](https://img.shields.io/badge/built%20on-LeRobot-yellow.svg)](https://github.com/huggingface/lerobot)
+[![Benchmark: LIBERO](https://img.shields.io/badge/benchmark-LIBERO--Long-green.svg)](https://libero-project.github.io)
+
 Agentic AI wraps a model in a harness: tools, verification, retries. Conductor
 does the same for robot policies. It gives a VLA one step of a task at a
 time, checks that each step happened, brings the robot back to a state the
@@ -141,3 +146,9 @@ docs/      the cube-lift write-up
 videos/    README videos and previews
 PLAN.md    roadmap, rules for every experiment, log of every run
 ```
+
+## License and citation
+
+Apache License 2.0 ([LICENSE](LICENSE), [NOTICE](NOTICE) for third-party
+material). To cite Conductor, use [CITATION.cff](CITATION.cff) (GitHub's
+"Cite this repository" button).
