@@ -22,6 +22,8 @@ videos/*
 !videos/loop_recover_preview.gif
 !videos/retry_before_after.mp4
 !videos/retry_before_after_preview.gif
+!videos/base_vs_conductor.mp4
+!videos/base_vs_conductor_preview.gif
 
 # W&B local run cache (runs live on wandb.ai)
 wandb/

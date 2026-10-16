@@ -8,6 +8,16 @@ the harness is what you add.
 
 ## Result: LIBERO-Long
 
+[![The same model alone (left) and inside Conductor (right)](videos/base_vs_conductor_preview.gif)](videos/base_vs_conductor.mp4)
+
+*The same SmolVLA, the same task and starting scene, 2× speed. Left: the model
+alone with the task's instruction. It fiddles with the stove knob without
+turning it on and runs out of time. Right: inside Conductor. It is told
+"turn on the stove", then the harness brings the hand back to its start pose
+and says "put the moka pot on the stove"; when that stalls it recovers and
+retries, and the pot lands on the stove. Then the same for the soup and
+tomato sauce. Click for the full video.*
+
 SmolVLA (450M parameters) trained on LIBERO-90's single-step tasks, on the
 LIBERO-Long tasks whose steps it knows (6 of 10), 10 episodes × 3 seeds,
 same 520-step budget throughout:
@@ -19,15 +29,6 @@ same 520-step budget throughout:
 | + start-state check and recovery pose between steps | 56.1% |
 | **+ retry a step that stalls** | **67.8%** |
 | *For reference: the best end-to-end SmolVLA for LIBERO (`lerobot/smolvla_libero`)* | *43.9%* |
-
-[![Same episode with recovery only (left) and with retry (right)](videos/retry_before_after_preview.gif)](videos/retry_before_after.mp4)
-
-*Same task and starting scene, recovery only (left) and with retry (right),
-2× speed. First: turn on the stove, then put the moka pot on it. On the left
-the arm knocks the pot over and runs out of time; on the right the first
-attempt stalls, Conductor brings the arm back and retries, and the pot lands
-on the stove. Then: soup, then tomato sauce into the basket. Click for the
-full video.*
 
 What each part adds:
 
@@ -42,6 +43,13 @@ What each part adds:
 - **Retries recover most of the rest.** 42% of retried steps succeed, which
   brings the chain to 67.8%, close to the 69% the steps' individual success
   rates predict.
+
+[![Same episode with recovery only (left) and with retry (right)](videos/retry_before_after_preview.gif)](videos/retry_before_after.mp4)
+
+*What retry adds: the same episodes with recovery only (left) and with
+retry (right), 2× speed. On the left the arm knocks the moka pot over and
+runs out of time; on the right the stalled step is retried from the start
+pose and succeeds.*
 
 Today the steps are checked with LIBERO's own goal predicates and the step
 plans are written per task. Next: a camera-based verifier, a planner that
@@ -125,7 +133,7 @@ Full write-up (versions, benchmarks, perception, evaluation, setup):
 
 ```
 harness/   Conductor: VLA skill, plans, start-state contract, recovery, rollout loop
-libero/    LIBERO setup, eval scripts, per-subgoal logging and analysis
+libero/    LIBERO setup, eval scripts, per-subgoal logging and analysis, video scripts
 results/   all benchmark results (cube: benchmark.tsv, episodes/; LIBERO: libero/)
 scripts/   cube-lift env, experts, BC training, perception, skills, benchmark
 models/    cube scenes (MuJoCo Menagerie based) and cube-skill checkpoints
