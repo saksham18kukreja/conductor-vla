@@ -15,6 +15,10 @@ They coincide where the trained phrasing is the split one.
            exists (LIBERO-90 = 90 single-step tasks in the LIBERO-Long scenes,
            the training half of LIBERO-100); otherwise the trained wording.
            `in_libero90` marks steps whose instruction exists in the same scene.
+  conductor the step labels of our fine-tuning dataset (libero/build_dataset.py
+           STEP_WORDING): LIBERO-90 wording where it exists, otherwise in the
+           same style; the instructions a Conductor-fine-tuned model was
+           trained on.
 
 Left/right follow LIBERO's convention: in task 4 "the left plate" is plate_1
 at y = -0.32, so left is -y. In task 8 moka_pot_2 (y ~ 0.05) is the left pot
@@ -39,6 +43,8 @@ class PlanStep:
         return self.libero90 is not None
 
     def instruction(self, wording):
+        if wording == "conductor":
+            return CONDUCTOR_OVERRIDES.get(self.check) or self.libero90 or self.trained
         if wording == "libero90":
             return self.libero90 or self.trained
         return {"trained": self.trained, "split": self.split}[wording]
@@ -51,6 +57,11 @@ def basket(obj, name, phrase, l90_name=None):
                     ("in", obj, "basket_1_contain_region"),
                     f"pick up the {l90_name} and put it in the basket" if l90_name else None)
 
+
+# conductor wording where it differs from libero90 (steps LIBERO-90 doesn't have)
+CONDUCTOR_OVERRIDES = {
+    ("in", "cream_cheese_1", "basket_1_contain_region"): "pick up the cream cheese box and put it in the basket",
+}
 
 PLANS = {  # libero_10 task id -> steps
     # LIVING_ROOM_SCENE2: LIBERO-90 has alphabet soup, butter, milk, orange

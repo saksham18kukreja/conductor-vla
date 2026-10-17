@@ -45,8 +45,8 @@ class HarnessConfig:
     def from_env(cls):
         raw = os.environ.get("HARNESS_CONFIG", "").strip()
         cfg = cls(**json.loads(raw)) if raw else cls()
-        if cfg.wording not in ("trained", "split", "libero90"):
-            raise ValueError(f"wording must be trained, split or libero90, got {cfg.wording!r}")
+        if cfg.wording not in ("trained", "split", "libero90", "conductor"):
+            raise ValueError(f"wording must be trained, split, libero90 or conductor, got {cfg.wording!r}")
         return cfg
 
     def describe(self):
