@@ -14,7 +14,7 @@ for SEED in $SEEDS; do
     --eval.batch_size=1 --eval.n_episodes=10 --env.max_parallel_tasks=1 --seed=$SEED \
     --output_dir=$R/s$SEED --eval.use_async_envs=false --policy.device=cuda \
     '--env.camera_name_mapping={"agentview_image": "camera1", "robot0_eye_in_hand_image": "camera2"}' \
-    --policy.empty_cameras=1 < /dev/null > $R/s$SEED.log 2>&1
+    --policy.empty_cameras=1 ${EXTRA_ARGS} < /dev/null > $R/s$SEED.log 2>&1
   echo "seed $SEED exit $?" >> $R/status.txt
 done
 echo ALLDONE >> $R/status.txt

@@ -460,6 +460,10 @@ needs it.
   its signal shows it. Single-object skills need preconditions on free
   space, and the harness needs a verifier that checks every object, not
   just the target: side effects are a failure mode of their own.
+- **So is how often a VLA re-plans.** Re-planning every 10 actions instead
+  of every 50 took Conductor with the v1 model from 28% to 41%: after a
+  recovery move the scene has changed, and a VLA that commits to 50 actions
+  (2.5 s) reacts late.
 - **A retry timeout is a property of the skill, not the harness.** The
   160-step timeout tuned on one VLA cut off most successes of another whose
   step takes 170–190 steps (Conductor 20% → 28% at 220). Each skill's
@@ -548,4 +552,5 @@ needs it.
 | 2026-10-16 | — | Fine-tuning data checks and build (`libero/build_dataset.py`): lerobot/libero (4 suites) + IPEC LIBERO-90 + lerobot/libero_10_subtask relabelled with Conductor's step wording, all Apache-2.0, one dataset (multi-dataset training is disabled in this LeRobot) | IPEC LIBERO-90 gripper is 1 open / 0 closed vs -1 open / +1 closed in lerobot/libero and the env → remapped; "10 fps" vs "20 fps" is only a label (identical episode lengths); step ids mapped from step order (moka pots: step 5 = left pot, 4 = right); test build: gripper consistent, frames 41 dB PSNR vs source; full build ~3–4 h |
 | 2026-10-17 | — | Built the fine-tuning dataset (6,113 episodes, 980,639 frames, 114 instructions, 5.7 GB). Comparison fine-tunes from smolvla_libero, 3,000 steps × batch 16 each: LoRA (language model + expert, 3M) vs expert-only (100M); quick eval seed 1000 | new steps (not in LIBERO-90): left moka pot LoRA 4/10, expert 3/10; mug into microwave 3/10, 5/10; cream cheese 0, 0 (LIBERO-90 model 0/10 on all three); covered steps 8/20, 9/20 (LIBERO-90 model 19/20); full task 2: 2/10, 4/10 (smolvla_libero 7/10). Too short to judge; expert-only chosen. Full run started: expert-only, 50k steps × 16, ~7.3 h |
 | 2026-10-17 | finetune v1 | Expert-only fine-tune of smolvla_libero on the Conductor dataset, 50k × 16 (0.82 epoch, 7.4 h on the laptop); quick eval at 10k / 30k / 50k; Conductor (M3) on all 10 tasks, seed 1000 | new steps (not in LIBERO-90) 0/30 → 15/30 (left moka pot 8/10); covered steps 13/20 (LIBERO-90 model 19/20); full task 2 1/10 (smolvla_libero 7/10). Conductor: 20% with the 160-step timeout (this model's left-moka-pot step takes 170–190 steps, so the timeout cut 7 of 8 successes), 28% with 220; still below Conductor + LIBERO-90 model (67% on its 6 tasks) and smolvla_libero alone (53%). Second steps fail in the chain (task 8: first pot 10/10, second 0/10). empty_cameras 0 vs 1: no effect. Not published. Next: n_action_steps 10, then longer training / reweighted mix |
+| 2026-10-17 | finetune v1 | Conductor with the v1 model, 220-step timeout, re-planning every 10 actions instead of 50 (`--policy.n_action_steps=10`), seed 1000 | 28% → 41% on all 10 tasks (6 covered: 48% vs 67% with the LIBERO-90 model, 42% smolvla_libero alone); task 7 3 → 9/10, task 2 4 → 7/10; task 3 5 → 1/10 (drawer not closed); tasks 8, 9 still 0/10 (second step). Still below smolvla_libero alone (53%); under-trained (0.8 epoch, expert-only) |
 | 2026-09-29 | — | Unified evaluation (skill mode, per-episode records, regression vs ground truth) + W&B tracking; 48 results rows backfilled | — |
